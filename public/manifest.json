@@ -1,0 +1,16 @@
+{
+  "name": "Monster Pocket CARD-tel HQ",
+  "short_name": "MPC HQ",
+  "description": "Track, grade, and price your Pokémon card and slab collection.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08080c",
+  "theme_color": "#08080c",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
