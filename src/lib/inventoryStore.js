@@ -20,6 +20,17 @@ function computeAsking(item) {
   return Math.round(price * (1 + markup / 100) * 100) / 100
 }
 
+// The real pricing rule: once eBay's recently-sold data exists for an item,
+// its average IS the asking price — cost + markup only ever fills in
+// before that data exists yet, or when no comparable sold listings turn up.
+function resolveAskingPrice(item) {
+  const marketAvg = Number(item.market_estimate?.average)
+  if (item.market_estimate?.sample_size > 0 && marketAvg > 0) {
+    return Math.round(marketAvg * 100) / 100
+  }
+  return computeAsking(item)
+}
+
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
 }
@@ -52,11 +63,29 @@ export async function getItem(id) {
 export async function upsertItem(item, userId) {
   const now = new Date().toISOString()
   if (supabaseReady) {
+    if (item.id) {
+      // A genuine UPDATE — only touches the columns actually passed in, so
+      // a partial patch (e.g. just { id, market_estimate }) can never trip
+      // NOT NULL constraints on columns like `name` that aren't included.
+      // (.upsert() would build a full tentative INSERT row first and fail
+      // that same constraint check, even though the row already exists.)
+      const payload = { ...item }
+      delete payload.id
+      delete payload.user_id
+      const { data, error } = await supabase
+        .from('items')
+        .update(payload)
+        .eq('id', item.id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    }
     const payload = { ...item, user_id: userId }
-    delete payload.asking_price // generated column
+    if (payload.asking_price == null) payload.asking_price = resolveAskingPrice(payload)
     const { data, error } = await supabase
       .from('items')
-      .upsert(payload)
+      .insert(payload)
       .select()
       .single()
     if (error) throw error
@@ -66,7 +95,7 @@ export async function upsertItem(item, userId) {
   if (item.id) {
     const idx = items.findIndex((i) => i.id === item.id)
     const merged = { ...items[idx], ...item, updated_at: now }
-    merged.asking_price = computeAsking(merged)
+    if (item.asking_price == null) merged.asking_price = resolveAskingPrice(merged)
     items[idx] = merged
     writeLocal(items)
     return merged
@@ -78,7 +107,7 @@ export async function upsertItem(item, userId) {
     created_at: now,
     updated_at: now,
   }
-  created.asking_price = computeAsking(created)
+  if (created.asking_price == null) created.asking_price = resolveAskingPrice(created)
   items.unshift(created)
   writeLocal(items)
   return created
@@ -150,4 +179,4 @@ export async function saveSettings(userId, settings) {
   localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings))
 }
 
-export { computeAsking }
+export { computeAsking, resolveAskingPrice }

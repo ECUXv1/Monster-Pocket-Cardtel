@@ -36,8 +36,16 @@ export default function ItemDetail() {
     try {
       const query = buildEbayQuery(item)
       const estimate = await fetchEbaySoldPrices(query)
-      const updated = await upsertItem({ id: item.id, market_estimate: estimate }, user?.id)
-      setItem((prev) => ({ ...prev, market_estimate: updated.market_estimate ?? estimate }))
+      const patch = { id: item.id, market_estimate: estimate }
+      if (estimate.sample_size > 0 && Number(estimate.average) > 0) {
+        patch.asking_price = Math.round(Number(estimate.average) * 100) / 100
+      }
+      const updated = await upsertItem(patch, user?.id)
+      setItem((prev) => ({
+        ...prev,
+        market_estimate: updated.market_estimate ?? estimate,
+        asking_price: updated.asking_price ?? prev.asking_price,
+      }))
     } catch (err) {
       setPriceError(err.message || 'Could not check eBay prices.')
     } finally {
@@ -111,7 +119,11 @@ export default function ItemDetail() {
 
           <div className="slab-frame rounded-2xl border border-line bg-surface p-4 grid grid-cols-2 gap-4">
             <Stat label="Paid" value={money(item.purchase_price)} />
-            <Stat label={item.is_sold ? 'Sold for' : 'Asking price'} value={money(item.is_sold ? item.sold_price : item.asking_price)} gold />
+            <Stat
+              label={item.is_sold ? 'Sold for' : item.market_estimate?.sample_size > 0 ? 'Asking (market)' : 'Asking price'}
+              value={money(item.is_sold ? item.sold_price : item.asking_price)}
+              gold
+            />
             <Stat label="Markup" value={`${item.markup_percent}%`} />
             <Stat label={item.is_sold ? 'Realized profit' : 'Unrealized profit'} value={money(profit)} tone={profit >= 0 ? 'good' : 'bad'} />
           </div>
@@ -208,11 +220,15 @@ function MarketEstimate({ item, checking, error, onRefresh }) {
           </p>
           {est.average > 0 && (
             <p className="text-xs text-cream/60">
-              Your asking price is{' '}
-              <span className={item.asking_price >= est.average ? 'text-purple-glow' : 'text-orange'}>
-                {money(Math.abs(item.asking_price - est.average))} {item.asking_price >= est.average ? 'above' : 'below'}
-              </span>{' '}
-              the recent eBay average.
+              Asking price is set to this average automatically
+              {item.markup_percent != null && (
+                <>
+                  {' '}
+                  — cost + {item.markup_percent}% markup alone would've suggested{' '}
+                  <span className="text-cream/70">{money(Math.round((item.purchase_price || 0) * (1 + (item.markup_percent || 0) / 100) * 100) / 100)}</span>
+                </>
+              )}
+              .
             </p>
           )}
           {est.listings?.length > 0 && (

@@ -122,7 +122,9 @@ Device detection is a simple check (does this look like a phone's browser?) — 
 
 ## Pricing logic
 
-Asking price = `price you paid × (1 + markup% / 100)`, rounded to the cent. Set a personal default markup in **Settings** (applied to every new item), and fine-tune per item with the slider on the add/edit form. Dashboard profit figures use the asking price for active items and your recorded sold price for sold items.
+**Market price wins.** Once eBay's recently-sold check finds real comparable listings for an item, its asking price is set automatically to that market average — not to cost plus markup. This happens the moment an item is added (or Auto-Identified), and again every time the price check re-runs (every 7 days automatically, or on demand via the refresh button).
+
+Cost + markup (`price you paid × (1 + markup% / 100)`) is only ever a **fallback** — used in the brief window before eBay data exists yet for a new item, or for anything with no comparable sold listings found. Set a personal default markup in **Settings**, and fine-tune it per item on the add/edit form; the app tells you plainly on that form whether the current asking price is coming from the market average or from the fallback markup. Dashboard profit figures use the current asking price for active items and your recorded sold price for sold items.
 
 ## Ideas to grow it later
 

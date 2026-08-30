@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Save, Trash2, Sparkles, Loader2 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
-import { getItem, upsertItem, uploadImage, deleteItem, getSettings, computeAsking } from '../lib/inventoryStore'
+import { getItem, upsertItem, uploadImage, deleteItem, getSettings, resolveAskingPrice } from '../lib/inventoryStore'
 import { money } from '../lib/format'
 import SmartCameraCapture from '../components/SmartCameraCapture'
 import { buildEbayQuery, fetchEbaySoldPrices } from '../lib/marketPrice'
@@ -68,7 +68,8 @@ export default function ItemForm() {
     setForm((f) => ({ ...f, [field]: value }))
   }
 
-  const askingPreview = computeAsking(form)
+  const askingPreview = resolveAskingPrice(form)
+  const usingMarketPrice = form.market_estimate?.sample_size > 0 && Number(form.market_estimate?.average) > 0
 
   // A slot photo arrived wirelessly from a phone (QR hand-off) — the image
   // is already uploaded, so we get a URL directly, plus whatever Claude
@@ -198,6 +199,7 @@ export default function ItemForm() {
         sold_price: form.is_sold ? Number(form.sold_price) || 0 : null,
         purchase_date: form.purchase_date || null,
         sold_date: form.is_sold ? form.sold_date || null : null,
+        asking_price: askingPreview,
       }
       const saved = await upsertItem(payload, user?.id)
 
@@ -474,7 +476,7 @@ export default function ItemForm() {
             </Field>
           </div>
 
-          <Field label={`Markup — ${form.markup_percent || 0}%`}>
+          <Field label={`Fallback markup — ${form.markup_percent || 0}%`}>
             <input
               type="range"
               min={0}
@@ -484,12 +486,19 @@ export default function ItemForm() {
               onChange={(e) => set('markup_percent', e.target.value)}
               className="w-full accent-gold"
             />
+            <p className="text-[10px] text-cream/35 mt-1">
+              Only used until eBay market data exists for this card, or if none turns up.
+            </p>
           </Field>
 
           <div className="rounded-xl bg-gradient-to-br from-gold/15 to-transparent border border-gold/30 p-4 flex items-center justify-between">
             <div>
-              <p className="text-xs text-cream/60 font-semibold uppercase tracking-wide">Suggested asking price</p>
-              <p className="text-[11px] text-cream/40 mt-0.5">Cost + {form.markup_percent || 0}% markup</p>
+              <p className="text-xs text-cream/60 font-semibold uppercase tracking-wide">Asking price</p>
+              <p className="text-[11px] text-cream/40 mt-0.5">
+                {usingMarketPrice
+                  ? `Matched to eBay's recent market average (${form.market_estimate.sample_size} listings)`
+                  : `Cost + ${form.markup_percent || 0}% markup — no market data yet`}
+              </p>
             </div>
             <p className="font-num text-2xl font-bold text-gold">{money(askingPreview)}</p>
           </div>
@@ -553,7 +562,13 @@ async function checkEbayPrice(item, userId) {
     const query = buildEbayQuery(item)
     if (!query) return
     const estimate = await fetchEbaySoldPrices(query)
-    await upsertItem({ id: item.id, market_estimate: estimate }, userId)
+    const patch = { id: item.id, market_estimate: estimate }
+    // A real match found — the market average becomes the actual asking
+    // price, not just a reference number sitting next to the old one.
+    if (estimate.sample_size > 0 && Number(estimate.average) > 0) {
+      patch.asking_price = Math.round(Number(estimate.average) * 100) / 100
+    }
+    await upsertItem(patch, userId)
   } catch {
     // Best-effort — the item detail page will retry this if market_estimate is still missing.
   }

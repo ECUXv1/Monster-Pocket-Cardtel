@@ -25,8 +25,11 @@ create table if not exists public.items (
   purchase_price numeric(10,2) not null default 0,
   purchase_date date,
   markup_percent numeric(6,2) not null default 30,
-  asking_price numeric(10,2) generated always as
-    (round((purchase_price * (1 + markup_percent / 100.0))::numeric, 2)) stored,
+  -- Not a generated column: the app sets this directly. It's driven by
+  -- eBay's recent-sold market average whenever that data is available;
+  -- cost + markup is only ever a fallback before market data exists yet,
+  -- or for items with no comparable sold listings.
+  asking_price numeric(10,2) not null default 0,
 
   is_sold boolean not null default false,
   sold_price numeric(10,2),
@@ -54,6 +57,13 @@ create index if not exists items_is_sold_idx on public.items (is_sold);
 alter table public.items add column if not exists market_estimate jsonb;
 alter table public.items add column if not exists card_reference jsonb;
 alter table public.items add column if not exists condition_report jsonb;
+
+-- If you set up this database before asking_price stopped being a
+-- generated column, this converts it to a normal editable column,
+-- keeping every existing value exactly as it was calculated before.
+-- Safe to run again — it's a no-op once already converted.
+alter table public.items alter column asking_price drop expression if exists;
+alter table public.items alter column asking_price set default 0;
 
 -- keep updated_at fresh
 create or replace function public.set_updated_at()
