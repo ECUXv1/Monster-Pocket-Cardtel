@@ -293,6 +293,7 @@ function CertVerification({ cert }) {
       <div className="flex items-center justify-between">
         <p className="text-xs font-display text-gold uppercase tracking-wide">
           Verified on {cert.grading_company}.com
+          {cert.source === 'psa_api' && <span className="text-cream/30 normal-case font-body"> · official API</span>}
         </p>
         {cert.source_url && (
           <a
@@ -306,13 +307,31 @@ function CertVerification({ cert }) {
         )}
       </div>
 
+      {(cert.image_front || cert.image_back) && (
+        <div className="flex gap-2">
+          {cert.image_front && (
+            <img src={cert.image_front} alt="PSA-photographed front" className="w-20 rounded-lg object-cover border border-line" />
+          )}
+          {cert.image_back && (
+            <img src={cert.image_back} alt="PSA-photographed back" className="w-20 rounded-lg object-cover border border-line" />
+          )}
+        </div>
+      )}
+
       {cert.description && <p className="text-sm font-semibold text-cream">{cert.description}</p>}
+      {cert.grade_description && <p className="text-[11px] text-cream/50">{cert.grade_description}</p>}
 
       <div className="flex flex-wrap gap-1.5">
         {cert.grade && <span className="mpc-badge !text-[9px] !py-1">Grade {cert.grade}</span>}
         {cert.year && <span className="mpc-badge !text-[9px] !py-1">{cert.year}</span>}
         {cert.variety && <span className="mpc-badge !text-[9px] !py-1">{cert.variety}</span>}
         {cert.label_type && <span className="mpc-badge !text-[9px] !py-1">{cert.label_type}</span>}
+        {cert.total_population != null && (
+          <span className="mpc-badge !text-[9px] !py-1">Pop {cert.total_population}</span>
+        )}
+        {cert.population_higher != null && (
+          <span className="mpc-badge !text-[9px] !py-1">{cert.population_higher} higher</span>
+        )}
       </div>
 
       {cert.sold_comps?.length > 0 && (
@@ -349,11 +368,21 @@ function CardReference({ reference }) {
       )}
       <div className="min-w-0 flex-1 space-y-2">
         <div>
-          <p className="text-xs font-display text-gold uppercase tracking-wide">Card database</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-display text-gold uppercase tracking-wide">Card database</p>
+            {reference.match_confidence === 'low' && (
+              <span className="mpc-badge !text-[8px] !py-0.5 !px-1.5 !border-orange/40 !text-orange">unconfirmed match</span>
+            )}
+          </div>
           <p className="text-sm font-semibold text-cream">{reference.name}</p>
           <p className="text-xs text-cream/50">
             {[reference.set?.name, reference.number, reference.rarity].filter(Boolean).join(' · ')}
           </p>
+          {reference.match_confidence === 'low' && (
+            <p className="text-[10px] text-orange/70 mt-0.5">
+              This is the closest name match found — the exact set/print couldn't be confirmed by card number.
+            </p>
+          )}
         </div>
 
         {(reference.hp || reference.types?.length > 0) && (

@@ -377,6 +377,11 @@ export default function ItemForm() {
                 <p className="text-[11px] text-cream/50 mt-0.5">
                   {[form.card_reference.set?.name, form.card_reference.number].filter(Boolean).join(' · ')}
                 </p>
+                {form.card_reference.match_confidence === 'low' && (
+                  <p className="text-[10px] text-orange/70 mt-0.5">
+                    Unconfirmed match — double-check this is the right print before saving.
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {form.card_reference.hp && <span className="mpc-badge !text-[9px] !py-1">HP {form.card_reference.hp}</span>}
                   {form.card_reference.rarity && <span className="mpc-badge !text-[9px] !py-1">{form.card_reference.rarity}</span>}
@@ -489,14 +494,23 @@ export default function ItemForm() {
             </Field>
 
             {form.cert_verification?.found && (
-              <div className="slab-frame rounded-2xl border border-line bg-surface p-3">
-                <p className="text-xs font-display text-gold">Verified on {form.cert_verification.grading_company}.com</p>
-                {form.cert_verification.description && (
-                  <p className="text-[11px] text-cream/60 mt-0.5">{form.cert_verification.description}</p>
+              <div className="slab-frame rounded-2xl border border-line bg-surface p-3 flex gap-3">
+                {form.cert_verification.image_front && (
+                  <img
+                    src={form.cert_verification.image_front}
+                    alt="PSA-photographed front"
+                    className="w-14 rounded-lg object-cover border border-line shrink-0"
+                  />
                 )}
-                {form.cert_verification.grade && (
-                  <p className="text-[11px] text-cream/40 mt-0.5">Grade {form.cert_verification.grade}</p>
-                )}
+                <div className="min-w-0">
+                  <p className="text-xs font-display text-gold">Verified on {form.cert_verification.grading_company}.com</p>
+                  {form.cert_verification.description && (
+                    <p className="text-[11px] text-cream/60 mt-0.5">{form.cert_verification.description}</p>
+                  )}
+                  {form.cert_verification.grade && (
+                    <p className="text-[11px] text-cream/40 mt-0.5">Grade {form.cert_verification.grade}</p>
+                  )}
+                </div>
               </div>
             )}
             {form.cert_verification?.found === false && (

@@ -51,7 +51,10 @@ export const handler = async (event) => {
     const instructions = `These photos show ${subject}
 Respond with ONLY minified JSON (no markdown fences, no commentary) matching exactly this shape:
 {"name":string|null,"set_name":string|null,"card_number":string|null,"rarity":string|null,"condition":string|null,"grading_company":string|null,"grade":number|null,"cert_number":string|null,"confidence":"high"|"medium"|"low"}
-Use null for any field you cannot read with confidence. Never guess a cert number, grade, or grading company that is not clearly visible in the photo. "condition" should be one of: Mint, Near Mint, Excellent, Good, Played, Poor — only for raw cards, otherwise null.`
+
+"card_number" matters more than almost anything else here — most Pokémon have been printed on dozens of different cards across different sets, and the number (usually printed bottom-left or bottom-right, like "8/102" or "008/198") is the single most reliable way to tell WHICH exact print this is, not just which Pokémon it is. Read it carefully and include the full "x/y" form if both parts are visible, even if you have to look closely. Only use null for it if it's genuinely illegible or not printed on the card, not just because you're not fully certain.
+
+Use null for any other field you cannot read with confidence. Never guess a cert number, grade, or grading company that is not clearly visible in the photo. "condition" should be one of: Mint, Near Mint, Excellent, Good, Played, Poor — only for raw cards, otherwise null.`
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
