@@ -64,3 +64,24 @@ export async function recognizeCard(imageUrls, category) {
   if (!res.ok) throw new Error(data.error || 'Recognition failed')
   return data.recognized
 }
+
+export async function lookupCardDatabase({ name, set_name, card_number }) {
+  const params = new URLSearchParams({ name })
+  if (set_name) params.set('set', set_name)
+  if (card_number) params.set('number', card_number)
+  const res = await fetch(`/.netlify/functions/card-database-lookup?${params.toString()}`)
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Card database lookup failed')
+  return data
+}
+
+export async function gradeCondition(imageUrls) {
+  const res = await fetch('/.netlify/functions/grade-condition', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ imageUrls }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Condition check failed')
+  return data.report
+}

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Save, Trash2 } from 'lucide-react'
+import { ChevronLeft, Save, Trash2, Sparkles, Loader2 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { getItem, upsertItem, uploadImage, deleteItem, getSettings, computeAsking } from '../lib/inventoryStore'
 import { money } from '../lib/format'
 import SmartCameraCapture from '../components/SmartCameraCapture'
 import { buildEbayQuery, fetchEbaySoldPrices } from '../lib/marketPrice'
+import { recognizeCard, lookupCardDatabase, gradeCondition } from '../lib/captureSession'
 import CinematicHero from '../components/CinematicHero'
+import DateSelect from '../components/DateSelect'
 
 const GRADERS = ['PSA', 'BGS', 'CGC', 'SGC', 'Other']
 
@@ -31,6 +33,8 @@ const empty = {
   front_image_url: '',
   back_image_url: '',
   slab_image_url: '',
+  card_reference: null,
+  condition_report: null,
 }
 
 export default function ItemForm() {
@@ -43,6 +47,8 @@ export default function ItemForm() {
   const [pendingFiles, setPendingFiles] = useState({})
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(editing)
+  const [identifyStatus, setIdentifyStatus] = useState('') // '' | 'reading' | 'looking_up' | 'pricing' | 'error'
+  const [gradingCondition, setGradingCondition] = useState(false)
 
   useEffect(() => {
     getSettings(user?.id).then((s) => {
@@ -84,6 +90,100 @@ export default function ItemForm() {
     })
   }
 
+  // One-tap pipeline: read whatever photos are already attached, identify
+  // the card with Claude's vision, pull the canonical scan + full card
+  // intel from the Pokémon TCG database, then check eBay's recent sold
+  // prices — all in one go.
+  async function handleAutoIdentify() {
+    const imageUrls = [form.front_image_url, form.slab_image_url, form.back_image_url].filter(Boolean)
+    if (imageUrls.length === 0) {
+      alert('Add at least one photo first.')
+      return
+    }
+    setIdentifyStatus('reading')
+    try {
+      const recognized = await recognizeCard(imageUrls, form.category)
+      setForm((f) => ({
+        ...f,
+        name: recognized.name || f.name,
+        set_name: recognized.set_name || f.set_name,
+        card_number: recognized.card_number || f.card_number,
+        rarity: recognized.rarity || f.rarity,
+        condition: recognized.condition || f.condition,
+        grading_company: recognized.grading_company || f.grading_company,
+        grade: recognized.grade ?? f.grade,
+        cert_number: recognized.cert_number || f.cert_number,
+      }))
+
+      const cardName = recognized.name
+      if (cardName) {
+        setIdentifyStatus('looking_up')
+        try {
+          const reference = await lookupCardDatabase({
+            name: cardName,
+            set_name: recognized.set_name,
+            card_number: recognized.card_number,
+          })
+          if (reference.found) {
+            setForm((f) => ({
+              ...f,
+              card_reference: reference,
+              rarity: f.rarity || reference.rarity || '',
+            }))
+          }
+        } catch {
+          // Reference lookup failing shouldn't block the rest of the pipeline.
+        }
+
+        setIdentifyStatus('pricing')
+        try {
+          const query = buildEbayQuery({
+            name: cardName,
+            set_name: recognized.set_name,
+            card_number: recognized.card_number,
+            category: form.category,
+            grading_company: recognized.grading_company,
+            grade: recognized.grade,
+          })
+          const estimate = await fetchEbaySoldPrices(query)
+          setForm((f) => ({ ...f, market_estimate: estimate }))
+        } catch {
+          // Same — a failed price check shouldn't undo the identification.
+        }
+      }
+
+      setIdentifyStatus('')
+    } catch (err) {
+      setIdentifyStatus('error')
+      setTimeout(() => setIdentifyStatus(''), 3000)
+      alert(err.message || 'Could not identify this card.')
+    }
+  }
+
+  // Rough, photo-based condition estimate for raw cards — not a substitute
+  // for professional grading, just a quick sort based on whatever front/back
+  // photos are already attached.
+  async function handleGradeCondition() {
+    const imageUrls = [form.front_image_url, form.back_image_url].filter(Boolean)
+    if (imageUrls.length === 0) {
+      alert('Add at least a front photo first.')
+      return
+    }
+    setGradingCondition(true)
+    try {
+      const report = await gradeCondition(imageUrls)
+      setForm((f) => ({
+        ...f,
+        condition_report: report,
+        condition: report.condition || f.condition,
+      }))
+    } catch (err) {
+      alert(err.message || 'Could not check condition.')
+    } finally {
+      setGradingCondition(false)
+    }
+  }
+
   async function handleSave(e) {
     e.preventDefault()
     setSaving(true)
@@ -96,6 +196,8 @@ export default function ItemForm() {
         markup_percent: Number(form.markup_percent) || 0,
         quantity: Number(form.quantity) || 1,
         sold_price: form.is_sold ? Number(form.sold_price) || 0 : null,
+        purchase_date: form.purchase_date || null,
+        sold_date: form.is_sold ? form.sold_date || null : null,
       }
       const saved = await upsertItem(payload, user?.id)
 
@@ -205,6 +307,57 @@ export default function ItemForm() {
           )}
         </div>
 
+        {/* One-tap identify: vision + card database + eBay pricing */}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={handleAutoIdentify}
+            disabled={Boolean(identifyStatus)}
+            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple to-purple-dim text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 disabled:opacity-70 shadow-[0_0_24px_-6px_rgba(123,47,247,0.7)]"
+          >
+            {identifyStatus ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                {identifyStatus === 'reading' && 'Reading the card…'}
+                {identifyStatus === 'looking_up' && 'Pulling card intel…'}
+                {identifyStatus === 'pricing' && 'Checking eBay sold prices…'}
+                {identifyStatus === 'error' && 'Could not identify — try again'}
+              </>
+            ) : (
+              <>
+                <Sparkles size={16} /> Auto-Identify This Card
+              </>
+            )}
+          </button>
+
+          {form.card_reference?.found && (
+            <div className="slab-frame rounded-2xl border border-line bg-surface p-3 flex gap-3">
+              {form.card_reference.image_large && (
+                <img
+                  src={form.card_reference.image_large}
+                  alt={form.card_reference.name}
+                  className="w-16 rounded-lg object-cover shrink-0 border border-line"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-display text-gold">{form.card_reference.name}</p>
+                <p className="text-[11px] text-cream/50 mt-0.5">
+                  {[form.card_reference.set?.name, form.card_reference.number].filter(Boolean).join(' · ')}
+                </p>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {form.card_reference.hp && <span className="mpc-badge !text-[9px] !py-1">HP {form.card_reference.hp}</span>}
+                  {form.card_reference.rarity && <span className="mpc-badge !text-[9px] !py-1">{form.card_reference.rarity}</span>}
+                  {form.card_reference.market?.prices?.holofoil?.market && (
+                    <span className="mpc-badge !text-[9px] !py-1">
+                      TCGplayer {money(form.card_reference.market.prices.holofoil.market)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Core info */}
         <Section title="Card details">
           <Field label="Name" required>
@@ -249,6 +402,25 @@ export default function ItemForm() {
                 ))}
               </select>
             </Field>
+
+            <button
+              type="button"
+              onClick={handleGradeCondition}
+              disabled={gradingCondition}
+              className="w-full h-11 rounded-xl border border-dashed border-purple/50 bg-purple/10 text-purple-glow font-semibold text-sm flex items-center justify-center gap-2 active:scale-95 disabled:opacity-70"
+            >
+              {gradingCondition ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" /> Checking corners, edges, surface…
+                </>
+              ) : (
+                <>
+                  <Sparkles size={15} /> AI Condition Check
+                </>
+              )}
+            </button>
+
+            {form.condition_report && <ConditionReport report={form.condition_report} />}
           </Section>
         ) : (
           <Section title="Grading">
@@ -298,7 +470,7 @@ export default function ItemForm() {
               </div>
             </Field>
             <Field label="Purchase date">
-              <input type="date" value={form.purchase_date || ''} onChange={(e) => set('purchase_date', e.target.value)} className={inputCls} />
+              <DateSelect value={form.purchase_date} onChange={(v) => set('purchase_date', v)} />
             </Field>
           </div>
 
@@ -333,7 +505,7 @@ export default function ItemForm() {
                 <input type="number" step="0.01" value={form.sold_price} onChange={(e) => set('sold_price', e.target.value)} className={inputCls} />
               </Field>
               <Field label="Sold date">
-                <input type="date" value={form.sold_date || ''} onChange={(e) => set('sold_date', e.target.value)} className={inputCls} />
+                <DateSelect value={form.sold_date} onChange={(v) => set('sold_date', v)} />
               </Field>
             </div>
           )}
@@ -404,5 +576,31 @@ function Field({ label, required, children }) {
       </span>
       {children}
     </label>
+  )
+}
+
+function ConditionReport({ report }) {
+  if (!report.condition) {
+    return (
+      <p className="text-xs text-orange">{report.notes || 'Could not read a condition from that photo — try again.'}</p>
+    )
+  }
+  return (
+    <div className="slab-frame rounded-2xl border border-line bg-surface p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-display text-gold">AI estimate: {report.condition}</span>
+        <span className="text-[10px] text-cream/40 uppercase tracking-wide">{report.confidence} confidence</span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-cream/60">
+        {report.corners && <p><span className="text-cream/40">Corners:</span> {report.corners}</p>}
+        {report.edges && <p><span className="text-cream/40">Edges:</span> {report.edges}</p>}
+        {report.surface && <p><span className="text-cream/40">Surface:</span> {report.surface}</p>}
+        {report.centering && <p><span className="text-cream/40">Centering:</span> {report.centering}</p>}
+      </div>
+      {report.notes && <p className="text-[10px] text-cream/40 italic">{report.notes}</p>}
+      <p className="text-[10px] text-cream/30 pt-1 border-t border-line">
+        Photo-based AI estimate, not a professional grade — treat as a rough sort, not a substitute for PSA/BGS/CGC.
+      </p>
+    </div>
   )
 }

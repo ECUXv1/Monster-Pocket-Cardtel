@@ -38,6 +38,8 @@ create table if not exists public.items (
   slab_image_url text,
 
   market_estimate jsonb,        -- eBay recently-sold summary: {average, median, low, high, sample_size, listings, checked_at}
+  card_reference jsonb,         -- canonical card data from the Pokémon TCG database: reference image, stats, TCGPlayer prices
+  condition_report jsonb,       -- AI photo-based condition estimate for raw cards: {condition, confidence, corners, edges, surface, centering, notes}
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -50,13 +52,8 @@ create index if not exists items_is_sold_idx on public.items (is_sold);
 -- If you set up this database before market_estimate existed, this adds it
 -- without touching anything else (safe to run again any time).
 alter table public.items add column if not exists market_estimate jsonb;
-
--- If you set up capture_sessions before per-slot hand-off existed, this
--- adds the `slot` column safely (safe to run again any time).
-alter table public.capture_sessions add column if not exists slot text;
-alter table public.capture_sessions drop constraint if exists capture_sessions_slot_check;
-alter table public.capture_sessions add constraint capture_sessions_slot_check
-  check (slot in ('front','back','slab'));
+alter table public.items add column if not exists card_reference jsonb;
+alter table public.items add column if not exists condition_report jsonb;
 
 -- keep updated_at fresh
 create or replace function public.set_updated_at()
@@ -155,6 +152,13 @@ create table if not exists public.capture_sessions (
 );
 
 create index if not exists capture_sessions_user_id_idx on public.capture_sessions (user_id);
+
+-- If you set up capture_sessions before per-slot hand-off existed, this
+-- adds the `slot` column safely (safe to run again any time).
+alter table public.capture_sessions add column if not exists slot text;
+alter table public.capture_sessions drop constraint if exists capture_sessions_slot_check;
+alter table public.capture_sessions add constraint capture_sessions_slot_check
+  check (slot in ('front','back','slab'));
 
 alter table public.capture_sessions enable row level security;
 

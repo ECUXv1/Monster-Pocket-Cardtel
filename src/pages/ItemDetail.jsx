@@ -120,6 +120,9 @@ export default function ItemDetail() {
             <p className="text-xs text-cream/40">Cert # {item.cert_number}</p>
           )}
 
+          {item.card_reference?.found && <CardReference reference={item.card_reference} />}
+          {item.condition_report?.condition && <ConditionReport report={item.condition_report} />}
+
           <MarketEstimate
             item={item}
             checking={checkingPrice}
@@ -245,6 +248,100 @@ function MiniStat({ label, value, highlight }) {
     <div className="text-center">
       <p className="text-[10px] font-semibold text-cream/40 uppercase tracking-wide">{label}</p>
       <p className={`font-num text-sm font-bold ${highlight ? 'text-gold' : 'text-cream'}`}>{value}</p>
+    </div>
+  )
+}
+
+function CardReference({ reference }) {
+  const tcgPrices = reference.market?.prices
+  const priceEntries = tcgPrices ? Object.entries(tcgPrices).filter(([, p]) => p?.market) : []
+
+  return (
+    <div className="slab-frame rounded-2xl border border-line bg-surface p-4 flex gap-4">
+      {reference.image_large && (
+        <img
+          src={reference.image_large}
+          alt={reference.name}
+          className="w-24 rounded-xl object-cover shrink-0 border border-line"
+        />
+      )}
+      <div className="min-w-0 flex-1 space-y-2">
+        <div>
+          <p className="text-xs font-display text-gold uppercase tracking-wide">Card database</p>
+          <p className="text-sm font-semibold text-cream">{reference.name}</p>
+          <p className="text-xs text-cream/50">
+            {[reference.set?.name, reference.number, reference.rarity].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+
+        {(reference.hp || reference.types?.length > 0) && (
+          <div className="flex flex-wrap gap-1.5 text-[10px] text-cream/60">
+            {reference.hp && <span>HP {reference.hp}</span>}
+            {reference.types?.length > 0 && <span>· {reference.types.join('/')}</span>}
+            {reference.artist && <span>· Illus. {reference.artist}</span>}
+          </div>
+        )}
+
+        {priceEntries.length > 0 && (
+          <div className="flex flex-wrap gap-3 pt-1">
+            {priceEntries.slice(0, 3).map(([variant, p]) => (
+              <div key={variant} className="text-center">
+                <p className="text-[9px] uppercase tracking-wide text-cream/40 capitalize">{variant}</p>
+                <p className="font-num text-xs font-bold text-purple-glow">{money(p.market)}</p>
+              </div>
+            ))}
+            {reference.market?.url && (
+              <a
+                href={reference.market.url}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-auto self-center text-[10px] text-cream/40 hover:text-cream/70 flex items-center gap-1"
+              >
+                TCGplayer <ExternalLink size={10} />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ConditionReport({ report }) {
+  return (
+    <div className="slab-frame rounded-2xl border border-line bg-surface p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-display text-gold">AI estimate: {report.condition}</span>
+        {report.confidence && (
+          <span className="text-[10px] text-cream/40 uppercase tracking-wide">{report.confidence} confidence</span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-cream/60">
+        {report.corners && (
+          <p>
+            <span className="text-cream/40">Corners:</span> {report.corners}
+          </p>
+        )}
+        {report.edges && (
+          <p>
+            <span className="text-cream/40">Edges:</span> {report.edges}
+          </p>
+        )}
+        {report.surface && (
+          <p>
+            <span className="text-cream/40">Surface:</span> {report.surface}
+          </p>
+        )}
+        {report.centering && (
+          <p>
+            <span className="text-cream/40">Centering:</span> {report.centering}
+          </p>
+        )}
+      </div>
+      {report.notes && <p className="text-[10px] text-cream/40 italic">{report.notes}</p>}
+      <p className="text-[10px] text-cream/30 pt-1 border-t border-line">
+        Photo-based AI estimate, not a professional grade — treat as a rough sort, not a substitute for PSA/BGS/CGC.
+      </p>
     </div>
   )
 }

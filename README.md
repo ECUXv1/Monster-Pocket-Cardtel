@@ -78,6 +78,38 @@ This is the flow for a car screen (or any laptop) with no camera worth pointing 
 
 A note on security: the phone never signs in, so the QR code's link itself acts as a one-time capability — anyone who has that exact link (a random, unguessable ID, live for 15 minutes) can write a photo to that one session row and nothing else. That's the same trust model as any "share this link" pairing flow. If you want stricter guarantees later, swap the direct-from-phone Supabase writes for a Netlify function that validates the session server-side.
 
+## AI Condition Check (raw cards)
+
+On a raw card's Add/Edit page, once at least a front photo is attached, tap **"AI Condition Check"**. It looks at corners, edges, surface, and centering, and suggests one of the standard condition labels (Mint down to Poor), pre-filling the Condition field — you can still override it.
+
+**Read this before relying on it:** this is a rough estimate from an ordinary photo, not a professional grade. Real grading services use raking light, magnification, and precise centering measurement that a photo can't replicate — corner whitening and fine surface scratches especially are easy to miss or over-call. The card shown after checking always includes a "not a professional grade" note, and treats this as a quick way to sort your own collection, not a substitute for submitting anything valuable to PSA/BGS/CGC. Uses the same `ANTHROPIC_API_KEY` as Auto-Identify — no extra setup if you've already got that configured.
+
+## Auto-Identify (one-tap: read the card, pull its full profile, check the price)
+
+On the Add/Edit Item page, once at least one photo is attached (from your own camera, or a phone hand-off), tap **"Auto-Identify This Card"** and it runs the whole pipeline in one go:
+
+1. **Reads the card** with Claude's vision — name, set, number, and (for slabs) grading company/grade/cert number.
+2. **Pulls its full profile** from the [Pokémon TCG database](https://pokemontcg.io) — a clean reference scan image, HP, types, attacks, rarity, artist, and TCGPlayer market prices across variants (normal/holofoil/reverse holofoil, etc).
+3. **Checks eBay's recently-sold listings** for a real-world price range, same as the automatic check that already runs when you add an item.
+
+Everything gets dropped straight into the form, plus a card database summary card (reference image + stats + TCGPlayer prices) that also shows up on the item's detail page afterward. You can still edit anything it fills in before saving.
+
+This needs **no extra setup for the card database lookup** — it's a free public API, no key required for personal use. If you want higher rate limits later, get a free key at [dev.pokemontcg.io](https://dev.pokemontcg.io) and add it to Netlify as `POKEMONTCG_API_KEY`.
+
+## Ideas to grow it further
+
+A few directions worth considering if you want to keep leveling this up:
+
+- **Price history & trend chart** — every eBay/TCGplayer check already gets timestamped; storing each check instead of overwriting it would let the dashboard chart a card's value over time.
+- **Duplicate detection** — warn when adding a card you already own (by name + set + number), so you catch accidental re-adds or can track multiple copies deliberately.
+- **Set completion tracker** — cross-reference your collection against a set's full card list (the Pokémon TCG database has this) to show "you have 87/102 of Base Set."
+- **Wishlist + price alerts** — a "want" list that runs the same eBay check periodically and flags when a card drops into your target price range.
+- **Bulk scan mode** — lay out several cards at once, snap one photo, and let vision + the database lookup split and identify each card individually.
+- **Population/grading insight** — for graded slabs, cross-reference PSA/BGS/CGC population report data (where available) to show how rare that exact grade is.
+- **Collector rank & achievements** — the dashboard already computes a fun "collector rank" from item count; badges for milestones (first graded slab, first $100+ card, etc.) would lean further into the MPC branding.
+- **Printable/exportable binder** — generate a PDF checklist or binder-page layout of your collection, grouped by set, for insurance or show-and-tell.
+- **Marketplace listing draft** — auto-draft an eBay or TCGplayer listing title/description from the card's profile once you mark something for sale (this one needs real OAuth integration with those platforms, so it's a bigger lift than the rest).
+
 ## Using the camera
 
 **Each of the three photo boxes (front / back / slab) automatically detects what kind of device it's running on** and behaves differently — no setting to configure:
