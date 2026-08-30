@@ -133,8 +133,15 @@ export default function ItemForm() {
               cert_verification: cert,
               grade: cert.found && cert.grade ? cert.grade : f.grade,
             }))
-          } catch {
-            // Best effort — the cert badge on the detail page can retry this later.
+          } catch (err) {
+            setForm((f) => ({
+              ...f,
+              cert_verification: {
+                found: false,
+                grading_company: recognized.grading_company,
+                note: `Couldn't reach ${recognized.grading_company}'s site right now (${err.message}).`,
+              },
+            }))
           }
         }
 
@@ -150,8 +157,12 @@ export default function ItemForm() {
             card_reference: reference,
             rarity: f.rarity || reference.rarity || '',
           }))
-        } catch {
-          // Reference lookup failing shouldn't block the rest of the pipeline.
+        } catch (err) {
+          // Record it instead of leaving the box empty with no explanation.
+          setForm((f) => ({
+            ...f,
+            card_reference: { found: false, note: `Couldn't check the card database right now (${err.message}).` },
+          }))
         }
 
         setIdentifyStatus('pricing')

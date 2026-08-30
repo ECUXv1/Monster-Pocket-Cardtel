@@ -6,18 +6,6 @@
 // and TCGPlayer market price data as a second price signal alongside eBay.
 //
 // No API key is required for personal, low-volume use. If you want higher
-// rate limits, get a free key at https://dev.pokemontcg.io and set
-// POKEMONTCG_API_KEY as a Netlify environment variable — this function
-// picks it up automatically if present.
-
-// Given a card name (and optionally set name / card number), this looks up
-// the canonical card record from the Pokémon TCG database — a free public
-// API of every official card ever printed. That gives us three things the
-// eBay lookup and Claude's vision can't: a clean reference/scan image of
-// the card, the printed stats (HP, types, attacks, rarity, artist, set),
-// and TCGPlayer market price data as a second price signal alongside eBay.
-//
-// No API key is required for personal, low-volume use. If you want higher
 // rate limits and more reliable results, get a free key at
 // https://dev.pokemontcg.io and set POKEMONTCG_API_KEY as a Netlify
 // environment variable — this function picks it up automatically if present.
@@ -66,24 +54,44 @@ export const handler = async (event) => {
     `name:*${firstWord}*`, // wildcard on the primary word — catches subtitle mismatches
   ].filter(Boolean)
 
-  try {
-    let results = []
-    for (const query of tiers) {
+  let results = []
+  let lastError = null
+  // Each tier gets its own try/catch — a single failed/rate-limited
+  // attempt (a real risk with pokemontcg.io's free, unauthenticated tier)
+  // used to abort the ENTIRE lookup here, silently losing any chance the
+  // next, broader tier would have succeeded. Now a failure just moves on.
+  for (const query of tiers) {
+    try {
       results = await search(query)
       if (results.length > 0) break
+    } catch (err) {
+      lastError = err
+      results = []
     }
+  }
 
-    if (results.length === 0) {
+  if (results.length === 0) {
+    if (lastError) {
       return {
         statusCode: 200,
         body: JSON.stringify({
           found: false,
           searched_for: name,
-          note: "No match in the Pokémon TCG database — this can happen for very new, promotional, or limited-release cards that aren't indexed there yet.",
+          note: `Couldn't reach the Pokémon TCG database right now (${lastError.message}) — try refreshing again shortly.`,
         }),
       }
     }
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        found: false,
+        searched_for: name,
+        note: "No match in the Pokémon TCG database — this can happen for very new, promotional, or limited-release cards that aren't indexed there yet.",
+      }),
+    }
+  }
 
+  try {
     const card = results[0]
 
     const reference = {

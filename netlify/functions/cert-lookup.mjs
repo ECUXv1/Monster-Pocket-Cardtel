@@ -16,15 +16,40 @@
 
 import * as cheerio from 'cheerio'
 
-const BROWSER_HEADERS = {
-  'user-agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'accept-language': 'en-US,en;q=0.9',
-  'upgrade-insecure-requests': '1',
-  'sec-fetch-dest': 'document',
-  'sec-fetch-mode': 'navigate',
-  'sec-fetch-site': 'none',
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+]
+
+function browserHeaders(userAgent, referer) {
+  return {
+    'user-agent': userAgent,
+    accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'accept-language': 'en-US,en;q=0.9',
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+    'upgrade-insecure-requests': '1',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'none',
+    'sec-fetch-user': '?1',
+    referer,
+  }
+}
+
+// Same retry approach as the eBay function: try a couple of realistic
+// browser fingerprints before giving up, since a 403/429 usually means the
+// site's bot detection flagged this specific request, not that it's
+// permanently unreachable.
+async function fetchWithRetry(url, referer) {
+  let lastStatus = null
+  for (const ua of USER_AGENTS) {
+    const res = await fetch(url, { headers: browserHeaders(ua, referer) })
+    if (res.ok) return { html: await res.text() }
+    lastStatus = res.status
+    if (res.status !== 403 && res.status !== 429) break
+  }
+  return { html: null, status: lastStatus }
 }
 
 function cleanText($, el) {
@@ -33,9 +58,17 @@ function cleanText($, el) {
 
 async function lookupPSA(certNumber) {
   const url = `https://www.psacard.com/cert/${encodeURIComponent(certNumber)}/psa`
-  const res = await fetch(url, { headers: { ...BROWSER_HEADERS, referer: 'https://www.psacard.com/cert' } })
-  if (!res.ok) throw new Error(`PSA responded ${res.status}`)
-  const html = await res.text()
+  const { html, status } = await fetchWithRetry(url, 'https://www.psacard.com/cert')
+  if (!html) {
+    const blocked = status === 403 || status === 429
+    return {
+      found: false,
+      grading_company: 'PSA',
+      note: blocked
+        ? "PSA's site is currently blocking this lookup — try the refresh button again in a bit, or check psacard.com/cert directly."
+        : `PSA responded ${status || 'with an error'} — try again shortly.`,
+    }
+  }
   const $ = cheerio.load(html)
 
   const heading = cleanText($, '#main h1, main h1').replace(/^#?\d+\s*/, '') || null
@@ -95,21 +128,15 @@ async function lookupPSA(certNumber) {
 
 async function lookupCGC(certNumber) {
   const url = `https://www.cgccards.com/certlookup/${encodeURIComponent(certNumber)}/`
-  let res
-  try {
-    res = await fetch(url, { headers: { ...BROWSER_HEADERS, referer: 'https://www.cgccards.com/certlookup/' } })
-  } catch {
-    return { found: false, grading_company: 'CGC', note: "Couldn't reach CGC's site for this lookup." }
-  }
-  if (!res.ok) {
+  const { html, status } = await fetchWithRetry(url, 'https://www.cgccards.com/certlookup/')
+  if (!html) {
     return {
       found: false,
       grading_company: 'CGC',
-      note: 'CGC lookup is currently unavailable (their site is blocking automated checks) — try again later, or check cgccards.com/certlookup directly.',
+      note: `CGC lookup is currently unavailable (their site returned ${status || 'an error'}, likely blocking automated checks) — try again later, or check cgccards.com/certlookup directly.`,
     }
   }
 
-  const html = await res.text()
   const $ = cheerio.load(html)
   const bodyText = $('body').text()
 

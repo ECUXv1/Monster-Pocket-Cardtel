@@ -40,8 +40,10 @@ export async function syncItemIntel(item, userId) {
         set_name: item.set_name,
         card_number: item.card_number,
       })
-    } catch {
-      // Same — best effort, retryable later.
+    } catch (err) {
+      // Record the failure instead of leaving it silent — the detail page
+      // should say *something* rather than just staying blank forever.
+      patch.card_reference = { found: false, note: `Couldn't check the card database right now (${err.message}).` }
     }
   }
 
@@ -51,8 +53,12 @@ export async function syncItemIntel(item, userId) {
   if (item.category === 'graded' && item.cert_number && item.grading_company && !item.cert_verification?.found) {
     try {
       patch.cert_verification = await lookupCertVerification(item.grading_company, item.cert_number)
-    } catch {
-      // Best effort — retryable later via the refresh button.
+    } catch (err) {
+      patch.cert_verification = {
+        found: false,
+        grading_company: item.grading_company,
+        note: `Couldn't reach ${item.grading_company}'s site right now (${err.message}).`,
+      }
     }
   }
 

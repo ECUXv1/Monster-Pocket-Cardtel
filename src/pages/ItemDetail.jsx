@@ -205,6 +205,11 @@ function MarketEstimate({ item, checking, error, onRefresh }) {
         <div className="flex items-center gap-2">
           <TrendingUp size={15} className="text-purple-glow" />
           <p className="text-xs font-semibold text-cream uppercase tracking-wide">eBay recently sold</p>
+          {est?.source && (
+            <span className="mpc-badge !text-[8px] !py-0.5 !px-1.5">
+              {est.source === 'soldcomps' ? 'via SoldComps' : 'via eBay scrape'}
+            </span>
+          )}
         </div>
         <button
           onClick={onRefresh}
