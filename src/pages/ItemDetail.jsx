@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { ChevronLeft, Pencil, Trash2, ImageOff, Award, Tag, RefreshCw, TrendingUp, ExternalLink } from 'lucide-react'
-import { getItem, deleteItem, upsertItem } from '../lib/inventoryStore'
+import { getItem, deleteItem } from '../lib/inventoryStore'
 import { useAuth } from '../lib/AuthContext'
 import { money, itemProfit } from '../lib/format'
-import { buildEbayQuery, fetchEbaySoldPrices, isEstimateStale } from '../lib/marketPrice'
+import { isEstimateStale } from '../lib/marketPrice'
+import { syncItemIntel } from '../lib/itemIntel'
 
 export default function ItemDetail() {
   const { id } = useParams()
@@ -24,7 +25,10 @@ export default function ItemDetail() {
 
   useEffect(() => {
     if (!item || item.is_sold) return
-    if (!isEstimateStale(item.market_estimate)) return
+    const needsPrice = isEstimateStale(item.market_estimate)
+    const needsReference = !item.card_reference?.found && item.name
+    const needsCert = item.category === 'graded' && item.cert_number && item.grading_company && !item.cert_verification?.found
+    if (!needsPrice && !needsReference && !needsCert) return
     runPriceCheck()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id])
@@ -34,20 +38,18 @@ export default function ItemDetail() {
     setCheckingPrice(true)
     setPriceError('')
     try {
-      const query = buildEbayQuery(item)
-      const estimate = await fetchEbaySoldPrices(query)
-      const patch = { id: item.id, market_estimate: estimate }
-      if (estimate.sample_size > 0 && Number(estimate.average) > 0) {
-        patch.asking_price = Math.round(Number(estimate.average) * 100) / 100
+      const updated = await syncItemIntel(item, user?.id)
+      if (updated) {
+        setItem((prev) => ({
+          ...prev,
+          market_estimate: updated.market_estimate ?? prev.market_estimate,
+          asking_price: updated.asking_price ?? prev.asking_price,
+          card_reference: updated.card_reference ?? prev.card_reference,
+          cert_verification: updated.cert_verification ?? prev.cert_verification,
+        }))
       }
-      const updated = await upsertItem(patch, user?.id)
-      setItem((prev) => ({
-        ...prev,
-        market_estimate: updated.market_estimate ?? estimate,
-        asking_price: updated.asking_price ?? prev.asking_price,
-      }))
     } catch (err) {
-      setPriceError(err.message || 'Could not check eBay prices.')
+      setPriceError(err.message || 'Could not check prices.')
     } finally {
       setCheckingPrice(false)
     }
@@ -132,7 +134,17 @@ export default function ItemDetail() {
             <p className="text-xs text-cream/40">Cert # {item.cert_number}</p>
           )}
 
+          {item.cert_verification?.found && <CertVerification cert={item.cert_verification} />}
+          {item.cert_verification?.found === false && (
+            <p className="text-[11px] text-cream/35">{item.cert_verification.note}</p>
+          )}
+
           {item.card_reference?.found && <CardReference reference={item.card_reference} />}
+          {item.card_reference?.found === false && (
+            <p className="text-[11px] text-cream/35">
+              {item.card_reference.note || 'No match in the Pokémon card database for this card.'}
+            </p>
+          )}
           {item.condition_report?.condition && <ConditionReport report={item.condition_report} />}
 
           <MarketEstimate
@@ -251,7 +263,9 @@ function MarketEstimate({ item, checking, error, onRefresh }) {
           )}
         </>
       ) : est && est.sample_size === 0 && !checking ? (
-        <p className="text-xs text-cream/40">No recent sold listings found for this search — try editing the name/set for a closer match.</p>
+        <p className="text-xs text-cream/40">
+          {est.error || 'No recent sold listings found for this search — try editing the name/set for a closer match.'}
+        </p>
       ) : !checking && !error ? (
         <p className="text-xs text-cream/40">Not checked yet.</p>
       ) : null}
@@ -264,6 +278,53 @@ function MiniStat({ label, value, highlight }) {
     <div className="text-center">
       <p className="text-[10px] font-semibold text-cream/40 uppercase tracking-wide">{label}</p>
       <p className={`font-num text-sm font-bold ${highlight ? 'text-gold' : 'text-cream'}`}>{value}</p>
+    </div>
+  )
+}
+
+function CertVerification({ cert }) {
+  return (
+    <div className="slab-frame rounded-2xl border border-line bg-surface p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-display text-gold uppercase tracking-wide">
+          Verified on {cert.grading_company}.com
+        </p>
+        {cert.source_url && (
+          <a
+            href={cert.source_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[10px] text-cream/40 hover:text-cream/70 flex items-center gap-1"
+          >
+            View cert <ExternalLink size={10} />
+          </a>
+        )}
+      </div>
+
+      {cert.description && <p className="text-sm font-semibold text-cream">{cert.description}</p>}
+
+      <div className="flex flex-wrap gap-1.5">
+        {cert.grade && <span className="mpc-badge !text-[9px] !py-1">Grade {cert.grade}</span>}
+        {cert.year && <span className="mpc-badge !text-[9px] !py-1">{cert.year}</span>}
+        {cert.variety && <span className="mpc-badge !text-[9px] !py-1">{cert.variety}</span>}
+        {cert.label_type && <span className="mpc-badge !text-[9px] !py-1">{cert.label_type}</span>}
+      </div>
+
+      {cert.sold_comps?.length > 0 && (
+        <div className="pt-1 space-y-1">
+          <p className="text-[10px] uppercase tracking-wide text-cream/40">Recent sales, same cert population</p>
+          <div className="flex flex-wrap gap-3">
+            {cert.sold_comps.slice(0, 4).map((s, i) => (
+              <div key={i} className="text-center">
+                <p className="font-num text-xs font-bold text-purple-glow">{money(s.price)}</p>
+                <p className="text-[9px] text-cream/40">{s.date}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {cert.note && <p className="text-[10px] text-cream/35 pt-1 border-t border-line">{cert.note}</p>}
     </div>
   )
 }

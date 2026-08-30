@@ -45,20 +45,37 @@ Open the printed local URL. It works immediately in **demo mode** (data stored o
 3. In **Site settings → Environment variables**, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 4. Deploy. Once live, open the Netlify URL on your phone and use "Add to Home Screen" (iOS Safari share menu, or Chrome's install icon) to install it as an app. On a Tesla, open the URL in the car browser — the layout switches to a side-rail touch layout automatically on wide screens.
 
-## Auto-checking eBay's recently sold prices
+## Auto-checking market price & card reference data
 
-Whenever an item is added — whether you typed the details in by hand or used phone scan — the app automatically searches eBay's **sold, completed listings** for that card (name + set + card number, plus grading company/grade for slabs) and shows you the low / average / high from recent sales, right on the item's detail page. It also checks again automatically if an estimate is more than 7 days old, or any time you tap the refresh icon.
+Whenever an item is added — whether you typed the details in by hand, used phone scan, or Auto-Identify — the app automatically runs two checks in the background, both fully automatic, neither gated behind the other:
 
-This needs **no API key and no Anthropic account** — it works out of the box once deployed, independent of the phone-scan recognition feature below. A few honest caveats:
+1. **eBay's recently-sold listings** — low / average / high from recent comparable sales, shown on the item's detail page. This becomes the item's actual asking price (see "Pricing logic" above). Re-checks automatically if the estimate is more than 7 days old, or any time you tap the refresh icon.
+2. **The Pokémon TCG database** — a reference scan image, HP/types/attacks/rarity/artist, and TCGplayer market prices, using whatever name/set/number the item already has. This runs the moment an item has a name, whether that name was typed by hand or came from Auto-Identify — it only ever needed text to search with, not a photo.
 
-- eBay doesn't offer free, official "sold listings" data to individual developers (that's gated behind their Marketplace Insights API, which requires a separate partner application). So `netlify/functions/ebay-sold-prices.mjs` instead reads the same public "sold items" search results page you'd see browsing eBay yourself, and summarizes the prices.
-- That makes it inherently a little fragile — if eBay changes their search page's markup, the parser may need a small update (it's isolated to that one file).
-- It's meant for personal, one-lookup-per-item use, not bulk/automated scraping — heavy automated use can run against eBay's Terms of Service.
-- If you later get approved for eBay's Marketplace Insights API, you can swap the fetch in that function for the official endpoint without touching anything else in the app.
+Both need **no API key by default** — they work out of the box once deployed. Here's how each one actually gets its data, and the honest tradeoffs:
+
+**eBay price check.** By default, `netlify/functions/ebay-sold-prices.mjs` reads the same public "sold items" search page you'd see browsing eBay yourself — free, but eBay actively fights this kind of automated request, so you may occasionally see it get blocked (a 403). For a **much more reliable** version:
+1. Sign up free at [sold-comps.com](https://sold-comps.com) — no credit card, instant API key (100 requests/month free, which comfortably covers personal use).
+2. Add it to Netlify as `SOLDCOMPS_API_KEY` and redeploy.
+3. The function automatically switches to using SoldComps' clean JSON API instead of scraping — same result on the item detail page, just far less likely to fail.
+
+(eBay's own official sold-data API, Marketplace Insights, isn't a realistic alternative here — it requires partner-level approval that individual developers are consistently denied.)
+
+**Card database lookup.** Free and unauthenticated by default via [pokemontcg.io](https://pokemontcg.io). For unusual card names (long promotional subtitles, punctuation, non-standard set names from vision-read text) the search now escalates through several fallback strategies — from an exact match down to a broad wildcard on the card's first word — before giving up. If a card genuinely isn't indexed there yet (very new, promotional, or limited-release cards sometimes aren't), the item's detail page says so plainly instead of just staying blank. For higher rate limits and more reliable matching, get a free key at [dev.pokemontcg.io](https://dev.pokemontcg.io) and add it to Netlify as `POKEMONTCG_API_KEY`.
+
+## Cert verification (graded cards, PSA / CGC)
+
+For graded slabs with a cert number filled in, the app also checks the grading company's *own* site directly — the real source of truth for that exact card, not a generic database entry. This runs automatically alongside the checks above (or immediately during Auto-Identify), and the result — full card description, confirmed grade, and any extra detail the grader shows — appears in its own panel on the item's detail page, with a link back to the official cert page.
+
+- **PSA** works reliably: `psacard.com/cert/{cert}/psa` is a plain, server-rendered page. As a bonus, PSA shows recent eBay sold prices for that exact card + grade population right on the cert page, and those show up too — a market signal specific to that one card, not just a keyword search.
+- **CGC** is best-effort. Their cert page (`cgccards.com/certlookup/{cert}/`) runs bot detection that can block even a plain request, and part of the page loads via client-side JavaScript that a simple fetch never sees. When it works, you get the confirmed grade and description; when it doesn't, the item's detail page says so plainly (with a link to check `cgccards.com/certlookup` yourself) rather than showing broken or missing data silently.
+- **BGS and SGC** aren't wired up yet — cert lookups for those show a clear "not supported yet" note instead of failing quietly.
+
+No API key needed for either. If PSA or CGC change their page layout, `netlify/functions/cert-lookup.mjs` is the one file that would need updating — same tradeoff as the eBay scraper above.
 
 ## Phone hand-off card recognition (optional, needs Claude API key)
 
-Separately, the QR "Scan with phone" flow described below can *also* auto-fill the card's name/set/grade by reading the photo with Claude's vision — but that part is entirely optional. If you don't set an `ANTHROPIC_API_KEY`, phone hand-off still gets the photo from your phone onto the Tesla screen, you just type in the name/set/grade yourself same as always, and the eBay price check above runs exactly the same either way.
+Separately, the QR "Scan with phone" flow described below, and the "Auto-Identify This Card" / "AI Condition Check" buttons, can auto-fill card details by reading a photo with Claude's vision — but that's entirely optional. If you don't set an `ANTHROPIC_API_KEY`, phone hand-off still gets the photo from your phone onto the Tesla screen, and typing in the name/set/grade yourself works exactly the same as Auto-Identify would have — both the eBay check and the card database lookup above run identically either way, since neither one actually needs vision, just the details on the item.
 
 ## Scan with phone (QR hand-off from the Tesla screen)
 

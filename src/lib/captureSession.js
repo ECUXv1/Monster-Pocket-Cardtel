@@ -85,3 +85,11 @@ export async function gradeCondition(imageUrls) {
   if (!res.ok) throw new Error(data.error || 'Condition check failed')
   return data.report
 }
+
+export async function lookupCertVerification(gradingCompany, certNumber) {
+  const params = new URLSearchParams({ company: gradingCompany || '', cert: certNumber || '' })
+  const res = await fetch(`/.netlify/functions/cert-lookup?${params.toString()}`)
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Cert lookup failed')
+  return data
+}

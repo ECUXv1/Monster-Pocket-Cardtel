@@ -6,7 +6,8 @@ import { getItem, upsertItem, uploadImage, deleteItem, getSettings, resolveAskin
 import { money } from '../lib/format'
 import SmartCameraCapture from '../components/SmartCameraCapture'
 import { buildEbayQuery, fetchEbaySoldPrices } from '../lib/marketPrice'
-import { recognizeCard, lookupCardDatabase, gradeCondition } from '../lib/captureSession'
+import { syncItemIntel } from '../lib/itemIntel'
+import { recognizeCard, lookupCardDatabase, lookupCertVerification, gradeCondition } from '../lib/captureSession'
 import CinematicHero from '../components/CinematicHero'
 import DateSelect from '../components/DateSelect'
 
@@ -35,6 +36,7 @@ const empty = {
   slab_image_url: '',
   card_reference: null,
   condition_report: null,
+  cert_verification: null,
 }
 
 export default function ItemForm() {
@@ -118,6 +120,24 @@ export default function ItemForm() {
 
       const cardName = recognized.name
       if (cardName) {
+        // For graded cards, check the grading company's own site by cert
+        // number first — it's the actual source of truth for this exact
+        // card, so its grade/description take priority over what vision
+        // read off the label photo.
+        if (form.category === 'graded' && recognized.cert_number && recognized.grading_company) {
+          setIdentifyStatus('verifying_cert')
+          try {
+            const cert = await lookupCertVerification(recognized.grading_company, recognized.cert_number)
+            setForm((f) => ({
+              ...f,
+              cert_verification: cert,
+              grade: cert.found && cert.grade ? cert.grade : f.grade,
+            }))
+          } catch {
+            // Best effort — the cert badge on the detail page can retry this later.
+          }
+        }
+
         setIdentifyStatus('looking_up')
         try {
           const reference = await lookupCardDatabase({
@@ -125,13 +145,11 @@ export default function ItemForm() {
             set_name: recognized.set_name,
             card_number: recognized.card_number,
           })
-          if (reference.found) {
-            setForm((f) => ({
-              ...f,
-              card_reference: reference,
-              rarity: f.rarity || reference.rarity || '',
-            }))
-          }
+          setForm((f) => ({
+            ...f,
+            card_reference: reference,
+            rarity: f.rarity || reference.rarity || '',
+          }))
         } catch {
           // Reference lookup failing shouldn't block the rest of the pipeline.
         }
@@ -212,9 +230,10 @@ export default function ItemForm() {
         await upsertItem({ id: saved.id, ...urls }, user?.id)
       }
 
-      // Fire-and-forget: check eBay's recently-sold listings for this card
-      // and attach the estimate once it's back, without holding up navigation.
-      checkEbayPrice(saved, user?.id)
+      // Fire-and-forget: check eBay's recently-sold listings AND the card
+      // database (whichever one hasn't already been filled in) for this
+      // item, without holding up navigation.
+      syncItemIntel(saved, user?.id)
 
       navigate(`/item/${saved.id}`)
     } catch (err) {
@@ -321,6 +340,7 @@ export default function ItemForm() {
               <>
                 <Loader2 size={16} className="animate-spin" />
                 {identifyStatus === 'reading' && 'Reading the card…'}
+                {identifyStatus === 'verifying_cert' && 'Verifying cert number…'}
                 {identifyStatus === 'looking_up' && 'Pulling card intel…'}
                 {identifyStatus === 'pricing' && 'Checking eBay sold prices…'}
                 {identifyStatus === 'error' && 'Could not identify — try again'}
@@ -357,6 +377,12 @@ export default function ItemForm() {
                 </div>
               </div>
             </div>
+          )}
+
+          {form.card_reference?.found === false && (
+            <p className="text-[11px] text-cream/40">
+              {form.card_reference.note || 'No match in the Pokémon card database for this card.'}
+            </p>
           )}
         </div>
 
@@ -450,6 +476,21 @@ export default function ItemForm() {
             <Field label="Cert number">
               <input value={form.cert_number} onChange={(e) => set('cert_number', e.target.value)} placeholder="e.g. 84930212" className={inputCls} />
             </Field>
+
+            {form.cert_verification?.found && (
+              <div className="slab-frame rounded-2xl border border-line bg-surface p-3">
+                <p className="text-xs font-display text-gold">Verified on {form.cert_verification.grading_company}.com</p>
+                {form.cert_verification.description && (
+                  <p className="text-[11px] text-cream/60 mt-0.5">{form.cert_verification.description}</p>
+                )}
+                {form.cert_verification.grade && (
+                  <p className="text-[11px] text-cream/40 mt-0.5">Grade {form.cert_verification.grade}</p>
+                )}
+              </div>
+            )}
+            {form.cert_verification?.found === false && (
+              <p className="text-[11px] text-cream/40">{form.cert_verification.note}</p>
+            )}
           </Section>
         )}
 
@@ -556,23 +597,6 @@ export default function ItemForm() {
 
 const inputCls =
   'w-full h-11 rounded-xl bg-surface border border-line px-3 text-sm text-cream placeholder:text-cream/30 focus:outline-none focus:ring-2 focus:ring-purple'
-
-async function checkEbayPrice(item, userId) {
-  try {
-    const query = buildEbayQuery(item)
-    if (!query) return
-    const estimate = await fetchEbaySoldPrices(query)
-    const patch = { id: item.id, market_estimate: estimate }
-    // A real match found — the market average becomes the actual asking
-    // price, not just a reference number sitting next to the old one.
-    if (estimate.sample_size > 0 && Number(estimate.average) > 0) {
-      patch.asking_price = Math.round(Number(estimate.average) * 100) / 100
-    }
-    await upsertItem(patch, userId)
-  } catch {
-    // Best-effort — the item detail page will retry this if market_estimate is still missing.
-  }
-}
 
 function Section({ title, children }) {
   return (

@@ -10,6 +10,34 @@
 // POKEMONTCG_API_KEY as a Netlify environment variable — this function
 // picks it up automatically if present.
 
+// Given a card name (and optionally set name / card number), this looks up
+// the canonical card record from the Pokémon TCG database — a free public
+// API of every official card ever printed. That gives us three things the
+// eBay lookup and Claude's vision can't: a clean reference/scan image of
+// the card, the printed stats (HP, types, attacks, rarity, artist, set),
+// and TCGPlayer market price data as a second price signal alongside eBay.
+//
+// No API key is required for personal, low-volume use. If you want higher
+// rate limits and more reliable results, get a free key at
+// https://dev.pokemontcg.io and set POKEMONTCG_API_KEY as a Netlify
+// environment variable — this function picks it up automatically if present.
+
+function escapeLucene(str) {
+  // Escape characters Lucene treats as syntax so a card name with them
+  // (e.g. an apostrophe, colon, or parenthesis) doesn't break the query.
+  return str.replace(/([+\-!(){}[\]^"~*?:\\/])/g, '\\$1')
+}
+
+async function search(query, pageSize = 5) {
+  const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}&pageSize=${pageSize}`
+  const headers = {}
+  if (process.env.POKEMONTCG_API_KEY) headers['X-Api-Key'] = process.env.POKEMONTCG_API_KEY
+  const res = await fetch(url, { headers })
+  if (!res.ok) throw new Error(`Pokemon TCG API responded ${res.status}`)
+  const data = await res.json()
+  return data.data || []
+}
+
 export const handler = async (event) => {
   const name = event.queryStringParameters?.name
   const setName = event.queryStringParameters?.set
@@ -19,29 +47,41 @@ export const handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'name is required' }) }
   }
 
-  // Build a Lucene-style query, most specific first.
-  const clauses = [`name:"${name}"`]
-  if (setName) clauses.push(`set.name:"${setName}"`)
-  if (number) clauses.push(`number:${number}`)
+  const safeName = escapeLucene(name)
+  const safeSet = setName ? escapeLucene(setName) : null
+  // The first word is usually the actual Pokémon/card name — the rest is
+  // often a descriptive subtitle (e.g. "Pikachu with Grey Felt Hat") that
+  // doesn't always match the database's stored name field verbatim.
+  const firstWord = safeName.split(/\s+/)[0]
 
-  async function search(query, pageSize = 5) {
-    const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}&pageSize=${pageSize}`
-    const headers = {}
-    if (process.env.POKEMONTCG_API_KEY) headers['X-Api-Key'] = process.env.POKEMONTCG_API_KEY
-    const res = await fetch(url, { headers })
-    if (!res.ok) throw new Error(`Pokemon TCG API responded ${res.status}`)
-    const data = await res.json()
-    return data.data || []
-  }
+  // Escalating tiers: start exact and specific, end broad and forgiving.
+  // Vision-read set names in particular are often verbose or slightly off
+  // ("2023 Pokemon SVP EN Pokemon X Van Gogh" vs. however the database
+  // actually labels that set), so quoted-exact-everything alone was
+  // failing far more often than it should.
+  const tiers = [
+    number && safeSet ? `name:"${safeName}" set.name:"${safeSet}" number:${number}` : null,
+    safeSet ? `name:"${safeName}" set.name:"${safeSet}"` : null,
+    `name:"${safeName}"`, // exact name, any set
+    `name:*${firstWord}*`, // wildcard on the primary word — catches subtitle mismatches
+  ].filter(Boolean)
 
   try {
-    // Try the most specific query first, then relax it if nothing matches.
-    let results = await search(clauses.join(' '))
-    if (results.length === 0 && setName) results = await search(`name:"${name}" set.name:"${setName}"`)
-    if (results.length === 0) results = await search(`name:"${name}"`)
+    let results = []
+    for (const query of tiers) {
+      results = await search(query)
+      if (results.length > 0) break
+    }
 
     if (results.length === 0) {
-      return { statusCode: 200, body: JSON.stringify({ found: false }) }
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          found: false,
+          searched_for: name,
+          note: "No match in the Pokémon TCG database — this can happen for very new, promotional, or limited-release cards that aren't indexed there yet.",
+        }),
+      }
     }
 
     const card = results[0]

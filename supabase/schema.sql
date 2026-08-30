@@ -43,6 +43,7 @@ create table if not exists public.items (
   market_estimate jsonb,        -- eBay recently-sold summary: {average, median, low, high, sample_size, listings, checked_at}
   card_reference jsonb,         -- canonical card data from the Pokémon TCG database: reference image, stats, TCGPlayer prices
   condition_report jsonb,       -- AI photo-based condition estimate for raw cards: {condition, confidence, corners, edges, surface, centering, notes}
+  cert_verification jsonb,      -- Direct lookup on the grading company's own site (PSA/CGC) by cert number: description, grade, sold comps
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -57,6 +58,7 @@ create index if not exists items_is_sold_idx on public.items (is_sold);
 alter table public.items add column if not exists market_estimate jsonb;
 alter table public.items add column if not exists card_reference jsonb;
 alter table public.items add column if not exists condition_report jsonb;
+alter table public.items add column if not exists cert_verification jsonb;
 
 -- If you set up this database before asking_price stopped being a
 -- generated column, this converts it to a normal editable column,
