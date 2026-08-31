@@ -235,18 +235,103 @@ create policy "Owners create capture sessions"
   to authenticated
   with check (auth.uid() = user_id);
 
--- The session id itself (embedded in the QR code's URL) is the capability —
--- like any share link, whoever has it can read/update *that one row* to
--- drop in photos from a phone that never logs in. Nothing else is exposed.
-drop policy if exists "Token holder can read a capture session" on public.capture_sessions;
-create policy "Token holder can read a capture session"
+-- The owner's own screen watches its session over Realtime (which enforces
+-- RLS same as any other read) — this is what actually needs SELECT access
+-- on the authenticated side, not a blanket public policy.
+drop policy if exists "Owners read their own capture sessions" on public.capture_sessions;
+create policy "Owners read their own capture sessions"
   on public.capture_sessions for select
-  using (true);
+  to authenticated
+  using (auth.uid() = user_id);
 
+-- SECURITY NOTE — this table previously had two policies here named
+-- "Token holder can read/update a capture session", both `using (true)`
+-- with no role restriction. That's a real hole: a Postgres RLS `using`
+-- clause governs which ROWS satisfy the policy, not what filter the
+-- client happened to apply — `using (true)` permits every row to every
+-- holder of the anon key, including a request with no filter at all, not
+-- just the one row whose id a legitimate caller actually knows. If you
+-- still have those two policies in your database, run this file again;
+-- the `drop policy if exists` lines above and below remove them.
+--
+-- The phone side of "Scan with phone" genuinely has no auth.uid() at all
+-- (it never signs in), so it can't use the same auth.uid()-based policy
+-- the owner's side uses above. Instead it goes through two narrow
+-- SECURITY DEFINER functions below — the function's own parameter list
+-- IS the allow-list (only status + the three image URLs + recognized +
+-- error are reachable; there's no parameter for user_id, category, slot,
+-- or the timestamps, so there's no way to touch them even by mistake),
+-- and each one independently re-checks that the row exists and hasn't
+-- expired, server-side, rather than trusting the frontend to filter
+-- correctly.
+drop policy if exists "Token holder can read a capture session" on public.capture_sessions;
 drop policy if exists "Token holder can update a capture session" on public.capture_sessions;
-create policy "Token holder can update a capture session"
-  on public.capture_sessions for update
-  using (true);
+
+create or replace function public.get_capture_session(p_token uuid)
+returns table (
+  id uuid,
+  status text,
+  category text,
+  slot text,
+  front_image_url text,
+  back_image_url text,
+  slab_image_url text,
+  recognized jsonb,
+  error text,
+  expires_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select id, status, category, slot, front_image_url, back_image_url,
+         slab_image_url, recognized, error, expires_at
+  from public.capture_sessions
+  where id = p_token
+    and expires_at > now();
+$$;
+
+create or replace function public.update_capture_session(
+  p_token uuid,
+  p_status text,
+  p_front_image_url text default null,
+  p_back_image_url text default null,
+  p_slab_image_url text default null,
+  p_recognized jsonb default null,
+  p_error text default null
+)
+returns table (
+  id uuid,
+  status text,
+  category text,
+  slot text,
+  front_image_url text,
+  back_image_url text,
+  slab_image_url text,
+  recognized jsonb,
+  error text,
+  expires_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  update public.capture_sessions
+  set
+    status = p_status,
+    front_image_url = coalesce(p_front_image_url, front_image_url),
+    back_image_url = coalesce(p_back_image_url, back_image_url),
+    slab_image_url = coalesce(p_slab_image_url, slab_image_url),
+    recognized = coalesce(p_recognized, recognized),
+    error = coalesce(p_error, error)
+  where id = p_token
+    and expires_at > now()
+  returning id, status, category, slot, front_image_url, back_image_url,
+            slab_image_url, recognized, error, expires_at;
+$$;
+
+grant execute on function public.get_capture_session(uuid) to anon, authenticated;
+grant execute on function public.update_capture_session(uuid, text, text, text, text, jsonb, text) to anon, authenticated;
 
 drop policy if exists "Owners delete their capture sessions" on public.capture_sessions;
 create policy "Owners delete their capture sessions"
@@ -270,3 +355,4 @@ create policy "Anyone can upload capture photos"
 
 -- Done. Item photos upload to: {user_id}/{item_id}/front.jpg
 -- Hand-off photos upload to: capture/{session_id}/front.jpg
+

@@ -13,21 +13,35 @@ export async function createCaptureSession(userId, category, slot = null) {
   return data
 }
 
+// These two are called from the phone's side of the "Scan with phone"
+// hand-off (CapturePhone.jsx) — a page that never signs in, so it has no
+// auth.uid() at all. They go through narrow SECURITY DEFINER database
+// functions (get_capture_session / update_capture_session) instead of
+// reading/writing the table directly: the function's own parameter list
+// IS the allow-list (only status + the three image URLs + recognized +
+// error are reachable — never user_id, category, slot, or the
+// timestamps), and it enforces "this exact row, only if not expired"
+// server-side rather than relying on the frontend to filter correctly.
 export async function getCaptureSession(token) {
-  const { data, error } = await supabase.from('capture_sessions').select('*').eq('id', token).single()
+  const { data, error } = await supabase.rpc('get_capture_session', { p_token: token })
   if (error) throw error
-  return data
+  if (!data || data.length === 0) throw new Error('Session not found or expired')
+  return data[0]
 }
 
 export async function updateCaptureSession(token, patch) {
-  const { data, error } = await supabase
-    .from('capture_sessions')
-    .update(patch)
-    .eq('id', token)
-    .select()
-    .single()
+  const { data, error } = await supabase.rpc('update_capture_session', {
+    p_token: token,
+    p_status: patch.status,
+    p_front_image_url: patch.front_image_url ?? null,
+    p_back_image_url: patch.back_image_url ?? null,
+    p_slab_image_url: patch.slab_image_url ?? null,
+    p_recognized: patch.recognized ?? null,
+    p_error: patch.error ?? null,
+  })
   if (error) throw error
-  return data
+  if (!data || data.length === 0) throw new Error('Session not found or expired')
+  return data[0]
 }
 
 export function subscribeToCaptureSession(token, onChange) {
