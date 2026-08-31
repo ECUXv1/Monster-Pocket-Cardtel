@@ -8,6 +8,7 @@ import ItemDetail from './pages/ItemDetail'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import CapturePhone from './pages/CapturePhone'
+import SharedInventory from './pages/SharedInventory'
 
 export default function App() {
   const { session, loading, supabaseReady } = useAuth()
@@ -20,6 +21,16 @@ export default function App() {
     return (
       <Routes>
         <Route path="/capture/:token" element={<CapturePhone />} />
+      </Routes>
+    )
+  }
+
+  // Same idea for a shared collection link — whoever it's sent to has no
+  // account here at all, and shouldn't need one just to look.
+  if (location.pathname.startsWith('/share/')) {
+    return (
+      <Routes>
+        <Route path="/share/:token" element={<SharedInventory />} />
       </Routes>
     )
   }

@@ -112,6 +112,56 @@ create policy "Users manage their own settings"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+-- Share link: a random token per user that unlocks a public, read-only
+-- view of their active inventory — no login required on the viewer's end.
+-- Off (share_enabled = false) by default; the person turns it on
+-- explicitly from Settings. Regenerating the token instantly invalidates
+-- any link already handed out.
+alter table public.user_settings add column if not exists share_token uuid not null default gen_random_uuid();
+alter table public.user_settings add column if not exists share_enabled boolean not null default false;
+
+-- The public entry point. SECURITY DEFINER lets this bypass the items
+-- table's normal per-owner RLS — but only to return a short, deliberately
+-- safe list of fields (never purchase_price, notes, or internal pricing
+-- detail like raw eBay listings). Nothing else in the database is
+-- reachable through this function. Returns nothing at all if the token
+-- doesn't match an enabled share.
+create or replace function public.get_shared_inventory(p_token uuid)
+returns table (
+  id uuid,
+  name text,
+  category text,
+  set_name text,
+  card_number text,
+  rarity text,
+  condition text,
+  grading_company text,
+  grade numeric,
+  quantity integer,
+  asking_price numeric,
+  front_image_url text,
+  slab_image_url text,
+  reference_image_url text
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    i.id, i.name, i.category, i.set_name, i.card_number, i.rarity, i.condition,
+    i.grading_company, i.grade, i.quantity, i.asking_price,
+    i.front_image_url, i.slab_image_url,
+    coalesce(i.cert_verification->>'image_front', i.card_reference->>'image_large') as reference_image_url
+  from public.items i
+  join public.user_settings us on us.user_id = i.user_id
+  where us.share_token = p_token
+    and us.share_enabled = true
+    and i.is_sold = false
+  order by i.asking_price desc nulls last;
+$$;
+
+grant execute on function public.get_shared_inventory(uuid) to anon, authenticated;
+
 -- 5. Storage bucket for card / slab photos
 insert into storage.buckets (id, name, public)
 values ('card-images', 'card-images', true)

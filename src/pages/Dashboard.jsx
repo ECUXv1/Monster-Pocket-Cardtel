@@ -75,7 +75,7 @@ export default function Dashboard() {
 
   return (
     <div className="pb-24 md:pb-8">
-      <CinematicHero eyebrow={rank} title="THE HQ DASHBOARD" compact />
+      <CinematicHero eyebrow={rank} title="MONSTER POCKET CARD-tel HQ DASHBOARD" compact />
 
       <div className="p-4 lg:p-8 -mt-6 space-y-6 relative">
         <header className="flex items-center justify-between">

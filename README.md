@@ -155,6 +155,16 @@ Device detection is a simple check (does this look like a phone's browser?) — 
 
 There's no manual markup anywhere in the app anymore — before real eBay data exists yet for a brand-new item, the placeholder is simply cost (break-even), and it updates automatically the moment the market check completes, usually within moments of adding the item.
 
+## Share your vault (public link, no login needed to view)
+
+A public, read-only link showing your active inventory, asking prices, and totals — turn it on in **Settings → Share Your Vault**, then copy the link (`/share/{token}`) to send to a customer. Fully Monster Pocket CARD-tel branded, works for anyone with the link, no account needed on their end.
+
+It shows: total collection value, raw vs. graded counts, and a gallery of every active (not sold) item with its image, grade, and asking price — same image fallback chain as everywhere else in the app (your photo → PSA/CGC's reference photo → the card database's stock image), so the collection looks complete even for cards you haven't personally photographed.
+
+**What it never shows, structurally, not just visually:** what you paid, profit, notes, or any internal pricing detail like raw eBay listing data. This isn't just hidden in the UI — the public page can only ever request a handful of safe fields through a dedicated database function (`get_shared_inventory`) that explicitly doesn't include `purchase_price`, `notes`, or anything else sensitive. There's no path for someone with the link to get at more than that, even by inspecting network requests.
+
+Off by default. Turn it off any time, or tap **"Generate new link"** to invalidate whatever link you'd already handed out and get a fresh one.
+
 ## Customer view
 
 A device-level toggle (Settings, or the eye icon on any item's detail page) that hides what you paid and your profit margin everywhere in the app — Dashboard's cost basis and unrealized profit, every item's profit badge in Inventory, and the Paid/Profit stats on an item's detail page. Handy for handing the screen to someone else without them seeing your cost basis. Card details, grade, and asking price all still show normally — this only hides money-you-paid information, not the item itself. It's per-device (stored locally, not synced) and stays on until you switch it back.

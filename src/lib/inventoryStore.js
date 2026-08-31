@@ -176,4 +176,52 @@ export async function saveSettings(userId, settings) {
   localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings))
 }
 
+// ---------- Sharing (public, read-only vault link) ----------
+// Only meaningful with Supabase connected — a shareable link needs a
+// backend to actually serve, so this is unavailable in local demo mode.
+
+export async function getShareSettings(userId) {
+  if (!supabaseReady) return null
+  const { data, error } = await supabase
+    .from('user_settings')
+    .select('share_token, share_enabled')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function setShareEnabled(userId, enabled) {
+  const { data, error } = await supabase
+    .from('user_settings')
+    .upsert({ user_id: userId, share_enabled: enabled, updated_at: new Date().toISOString() })
+    .select('share_token, share_enabled')
+    .single()
+  if (error) throw error
+  return data
+}
+
+// Regenerating instantly invalidates any link already handed out — the
+// old token stops matching anything the moment this runs.
+export async function regenerateShareToken(userId) {
+  const newToken = crypto.randomUUID()
+  const { data, error } = await supabase
+    .from('user_settings')
+    .upsert({ user_id: userId, share_token: newToken, updated_at: new Date().toISOString() })
+    .select('share_token, share_enabled')
+    .single()
+  if (error) throw error
+  return data
+}
+
+// The public entry point — no auth session needed. Goes through a
+// SECURITY DEFINER database function that only ever returns a short,
+// deliberately safe field list (see supabase/schema.sql), so this can
+// never leak cost, notes, or anything beyond what's meant to be shared.
+export async function getSharedInventory(token) {
+  const { data, error } = await supabase.rpc('get_shared_inventory', { p_token: token })
+  if (error) throw error
+  return data || []
+}
+
 export { resolveAskingPrice }
