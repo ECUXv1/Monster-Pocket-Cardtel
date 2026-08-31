@@ -361,9 +361,10 @@ function MarketEstimate({ item, checking, error, onRefresh }) {
 
       {est && est.sample_size > 0 ? (
         <>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-2">
             <MiniStat label="Low" value={money(est.low)} />
-            <MiniStat label="Avg / Median" value={money(est.average)} highlight />
+            <MiniStat label="Average" value={money(est.average)} highlight />
+            <MiniStat label="Median" value={money(est.median)} highlight />
             <MiniStat label="High" value={money(est.high)} />
           </div>
           <p className="text-[11px] text-cream/40">
