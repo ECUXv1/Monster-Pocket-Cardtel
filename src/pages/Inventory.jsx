@@ -4,7 +4,7 @@ import { Search, SlidersHorizontal, ImageOff, PlusCircle } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { listItems } from '../lib/inventoryStore'
 import { money, itemProfit, itemImage } from '../lib/format'
-import { useCustomerView } from '../lib/useCustomerView'
+import { useCustomerView } from '../lib/CustomerViewContext'
 import CinematicHero from '../components/CinematicHero'
 
 const FILTERS = [

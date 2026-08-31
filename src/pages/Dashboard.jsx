@@ -5,7 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import { useAuth } from '../lib/AuthContext'
 import { listItems } from '../lib/inventoryStore'
 import { money, pct, itemValue, itemCost, itemProfit, itemImage } from '../lib/format'
-import { useCustomerView } from '../lib/useCustomerView'
+import { useCustomerView } from '../lib/CustomerViewContext'
 import StatCard from '../components/StatCard'
 import CinematicHero from '../components/CinematicHero'
 

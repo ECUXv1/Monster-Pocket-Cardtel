@@ -46,6 +46,8 @@ create table if not exists public.items (
   cert_verification jsonb,      -- Direct lookup on the grading company's own site (PSA/CGC) by cert number: description, grade, sold comps
   price_guide jsonb,            -- PriceCharting + Collectr price-by-grade data, a second signal alongside eBay/SoldComps
   check_price_guide boolean not null default false, -- opt-in per item — the price guide check costs ~4 Parse.bot credits, so it's off by default
+  pricing_source text not null default 'median' check (pricing_source in ('median','psa','custom')), -- which number actually becomes asking_price
+  custom_asking_price numeric(10,2), -- only used when pricing_source = 'custom'
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -63,6 +65,12 @@ alter table public.items add column if not exists condition_report jsonb;
 alter table public.items add column if not exists cert_verification jsonb;
 alter table public.items add column if not exists price_guide jsonb;
 alter table public.items add column if not exists check_price_guide boolean not null default false;
+alter table public.items add column if not exists pricing_source text not null default 'median';
+do $$ begin
+  alter table public.items add constraint items_pricing_source_check check (pricing_source in ('median','psa','custom'));
+exception when duplicate_object then null;
+end $$;
+alter table public.items add column if not exists custom_asking_price numeric(10,2);
 
 -- If you set up this database before asking_price stopped being a
 -- generated column, this converts it to a normal editable column,

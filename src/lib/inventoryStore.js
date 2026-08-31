@@ -1,4 +1,5 @@
 import { supabase, supabaseReady } from './supabaseClient'
+import { parsePsaEstimate } from './format'
 
 const LOCAL_KEY = 'mpc_hq_demo_items_v1'
 const LOCAL_SETTINGS_KEY = 'mpc_hq_demo_settings_v1'
@@ -20,7 +21,28 @@ function writeLocal(items) {
 // item, checked moments before the automatic price sync completes), the
 // placeholder is simply cost — a neutral break-even number, not a made-up
 // percentage.
+// The pricing rule: which number actually becomes asking_price depends on
+// `pricing_source`, which you choose per item.
+//   'custom' — whatever you typed in yourself, full stop.
+//   'psa'    — PSA's own value estimate for that exact cert, if PSA
+//              actually returned one (falls back to median if not).
+//   'median' — the default: median of recent comparable eBay sales.
+// In every case, if the chosen source has no real number yet (no market
+// data synced, no PSA estimate available, custom left blank), the
+// placeholder is simply cost — a neutral break-even number.
 function resolveAskingPrice(item) {
+  if (item.pricing_source === 'custom') {
+    const custom = Number(item.custom_asking_price)
+    if (custom > 0) return Math.round(custom * 100) / 100
+  }
+
+  if (item.pricing_source === 'psa') {
+    const psaEstimate = parsePsaEstimate(item.cert_verification?.price_estimate)
+    if (item.cert_verification?.found && psaEstimate) {
+      return Math.round(psaEstimate * 100) / 100
+    }
+  }
+
   const median = Number(item.market_estimate?.median)
   if (item.market_estimate?.sample_size > 0 && median > 0) {
     return Math.round(median * 100) / 100

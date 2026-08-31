@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Download, LogOut, Wifi, WifiOff, Copy, RefreshCw, Check } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { listItems, getShareSettings, setShareEnabled, regenerateShareToken } from '../lib/inventoryStore'
-import { useCustomerView } from '../lib/useCustomerView'
+import { useCustomerView } from '../lib/CustomerViewContext'
 import CinematicHero from '../components/CinematicHero'
 
 export default function Settings() {

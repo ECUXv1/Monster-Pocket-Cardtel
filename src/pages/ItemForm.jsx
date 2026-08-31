@@ -11,6 +11,7 @@ import { recognizeCard, lookupCardDatabase, lookupCertVerification, gradeConditi
 import CinematicHero from '../components/CinematicHero'
 import DateSelect from '../components/DateSelect'
 import CardMatchPicker from '../components/CardMatchPicker'
+import PricingSourceSelector from '../components/PricingSourceSelector'
 
 const GRADERS = ['PSA', 'BGS', 'CGC', 'SGC', 'Other']
 
@@ -46,6 +47,8 @@ const empty = {
   slab_image_url: '',
   card_reference: null,
   check_price_guide: false,
+  pricing_source: 'median',
+  custom_asking_price: '',
   condition_report: null,
   cert_verification: null,
 }
@@ -77,7 +80,6 @@ export default function ItemForm() {
   }
 
   const askingPreview = resolveAskingPrice(form)
-  const usingMarketPrice = form.market_estimate?.sample_size > 0 && Number(form.market_estimate?.median) > 0
 
   // A slot photo arrived wirelessly from a phone (QR hand-off) — the image
   // is already uploaded, so we get a URL directly, plus whatever Claude
@@ -233,6 +235,7 @@ export default function ItemForm() {
         sold_price: form.is_sold ? Number(form.sold_price) || 0 : null,
         purchase_date: form.purchase_date || null,
         sold_date: form.is_sold ? form.sold_date || null : null,
+        custom_asking_price: form.custom_asking_price !== '' ? Number(form.custom_asking_price) || null : null,
         asking_price: askingPreview,
       }
       const saved = await upsertItem(payload, user?.id)
@@ -574,16 +577,16 @@ export default function ItemForm() {
             </Field>
           </div>
 
-          <div className="rounded-xl bg-gradient-to-br from-gold/15 to-transparent border border-gold/30 p-4 flex items-center justify-between">
-            <div>
+          <div className="rounded-xl bg-gradient-to-br from-gold/15 to-transparent border border-gold/30 p-4">
+            <div className="flex items-center justify-between mb-3">
               <p className="text-xs text-cream/60 font-semibold uppercase tracking-wide">Asking price</p>
-              <p className="text-[11px] text-cream/40 mt-0.5">
-                {usingMarketPrice
-                  ? `Matched to eBay's recent market median (${form.market_estimate.sample_size} listings)`
-                  : 'No market data yet — starting at cost, updates automatically once eBay data comes in'}
-              </p>
+              <p className="font-num text-2xl font-bold text-gold">{money(askingPreview)}</p>
             </div>
-            <p className="font-num text-2xl font-bold text-gold">{money(askingPreview)}</p>
+            <PricingSourceSelector
+              item={form}
+              onChange={(source) => set('pricing_source', source)}
+              onCustomChange={(v) => set('custom_asking_price', v)}
+            />
           </div>
 
           <label className="flex items-start gap-2.5 rounded-xl border border-line bg-surface p-3">

@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, Layers, PlusCircle, Settings, Eye, EyeOff } from 'lucide-react'
-import { useCustomerView } from '../lib/useCustomerView'
+import { useCustomerView } from '../lib/CustomerViewContext'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },

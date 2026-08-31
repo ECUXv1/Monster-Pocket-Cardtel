@@ -1,6 +1,6 @@
 import { buildEbayQuery, fetchEbaySoldPrices } from './marketPrice'
 import { lookupCardDatabase, lookupCertVerification, lookupPriceGuide } from './captureSession'
-import { upsertItem } from './inventoryStore'
+import { upsertItem, resolveAskingPrice } from './inventoryStore'
 
 /**
  * Runs the background checks for an item — eBay's recent-sold price, the
@@ -33,7 +33,12 @@ export async function syncItemIntel(item, userId, options = {}) {
     if (query) {
       const estimate = await fetchEbaySoldPrices(query)
       patch.market_estimate = estimate
-      if (estimate.sample_size > 0 && Number(estimate.median) > 0) {
+      // Only let this drive the actual asking price if that's the source
+      // you've chosen for this item — if you've picked PSA's estimate or
+      // typed in a custom number, a fresh eBay sync shouldn't silently
+      // overwrite that choice.
+      const usingMedian = !item.pricing_source || item.pricing_source === 'median'
+      if (usingMedian && estimate.sample_size > 0 && Number(estimate.median) > 0) {
         patch.asking_price = Math.round(Number(estimate.median) * 100) / 100
       }
     }
@@ -71,6 +76,12 @@ export async function syncItemIntel(item, userId, options = {}) {
       if (patch.cert_verification.found && patch.cert_verification.grade && (item.grade == null || item.grade === '')) {
         const numeric = String(patch.cert_verification.grade).match(/(\d+(\.\d+)?)/)
         if (numeric) patch.grade = Number(numeric[1])
+      }
+      // If PSA's estimate is the chosen pricing source, apply it the
+      // moment it actually arrives — otherwise it'd just sit in
+      // cert_verification without ever updating the real asking price.
+      if (item.pricing_source === 'psa') {
+        patch.asking_price = resolveAskingPrice({ ...item, cert_verification: patch.cert_verification })
       }
     } catch (err) {
       patch.cert_verification = {

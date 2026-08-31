@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './lib/AuthContext'
+import { CustomerViewProvider } from './lib/CustomerViewContext'
 import Nav from './components/Nav'
 import Dashboard from './pages/Dashboard'
 import Inventory from './pages/Inventory'
@@ -49,18 +50,20 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex bg-ink">
-      <Nav />
-      <main className="flex-1 min-w-0">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/inventory" element={<Inventory />} />
-          <Route path="/add" element={<ItemForm />} />
-          <Route path="/edit/:id" element={<ItemForm />} />
-          <Route path="/item/:id" element={<ItemDetail />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+      <CustomerViewProvider>
+        <Nav />
+        <main className="flex-1 min-w-0">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/add" element={<ItemForm />} />
+            <Route path="/edit/:id" element={<ItemForm />} />
+            <Route path="/item/:id" element={<ItemDetail />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </CustomerViewProvider>
     </div>
   )
 }

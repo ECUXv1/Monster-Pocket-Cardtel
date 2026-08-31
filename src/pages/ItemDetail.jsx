@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { ChevronLeft, Pencil, Trash2, ImageOff, Award, Tag, RefreshCw, TrendingUp, ExternalLink, Expand, Eye, EyeOff } from 'lucide-react'
-import { getItem, deleteItem, upsertItem } from '../lib/inventoryStore'
+import { getItem, deleteItem, upsertItem, resolveAskingPrice } from '../lib/inventoryStore'
 import { useAuth } from '../lib/AuthContext'
 import { money, itemProfit } from '../lib/format'
 import { isEstimateStale } from '../lib/marketPrice'
 import { syncItemIntel } from '../lib/itemIntel'
-import { useCustomerView } from '../lib/useCustomerView'
+import { useCustomerView } from '../lib/CustomerViewContext'
 import CardMatchPicker from '../components/CardMatchPicker'
+import PricingSourceSelector from '../components/PricingSourceSelector'
 import ImageLightbox from '../components/ImageLightbox'
 
 export default function ItemDetail() {
@@ -106,6 +107,23 @@ export default function ItemDetail() {
     } finally {
       setCheckingPrice(false)
     }
+  }
+
+  async function handlePricingSourceChange(source) {
+    const updated = { ...item, pricing_source: source }
+    const newAsking = resolveAskingPrice(updated)
+    setItem({ ...updated, asking_price: newAsking })
+    await upsertItem({ id: item.id, pricing_source: source, asking_price: newAsking }, user?.id)
+  }
+
+  async function handleCustomPriceChange(value) {
+    const updated = { ...item, custom_asking_price: value }
+    const newAsking = resolveAskingPrice(updated)
+    setItem({ ...updated, asking_price: newAsking })
+    await upsertItem(
+      { id: item.id, custom_asking_price: value !== '' ? Number(value) || null : null, asking_price: newAsking },
+      user?.id
+    )
   }
 
   async function handleSelectCardMatch(picked) {
@@ -243,6 +261,10 @@ export default function ItemDetail() {
               />
             )}
           </div>
+
+          {!item.is_sold && !customerView && (
+            <PricingSourceSelector item={item} onChange={handlePricingSourceChange} onCustomChange={handleCustomPriceChange} />
+          )}
 
           {item.category === 'graded' && item.cert_number && (
             <p className="text-xs text-cream/40">Cert # {item.cert_number}</p>

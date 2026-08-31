@@ -151,9 +151,15 @@ Device detection is a simple check (does this look like a phone's browser?) — 
 
 ## Pricing logic
 
-**Market price wins, using the median.** Once eBay's recently-sold check finds real comparable listings for an item, its asking price is set automatically to the **median** of the most recent, outlier-trimmed sales — not the average, and not a manual markup. Median is more resistant to the occasional fire-sale or bidding-war fluke than a raw average, which is exactly the kind of skew the outlier trimming already guards against. This happens the moment an item is added (or Auto-Identified), and again every time the price check re-runs (every 7 days automatically, or on demand via the refresh button).
+**You pick the source: PSA estimate, market median, or custom.** Every item has a `pricing_source` — a small selector on the Add/Edit form and on the item's detail page, showing what each option actually resolves to so you can compare before picking:
 
-There's no manual markup anywhere in the app anymore — before real eBay data exists yet for a brand-new item, the placeholder is simply cost (break-even), and it updates automatically the moment the market check completes, usually within moments of adding the item.
+- **Market median** (the default) — the median of the most recent, outlier-trimmed comparable eBay sales. Median is more resistant to a fire-sale or bidding-war fluke than a raw average. Updates automatically every 7 days, or on demand via the refresh button.
+- **PSA estimate** — PSA's own value estimate for that exact cert, pulled in as part of the automatic cert check (graded items only). Only selectable once PSA has actually returned one for that card; falls back to the median automatically if it hasn't.
+- **Custom** — type in your own number. Nothing else touches it once set.
+
+Whichever source has no real number yet (no market data synced, no PSA estimate, custom left blank) falls back to cost as a neutral placeholder, and updates on its own the moment real data arrives — except custom, which only ever changes when you type something in.
+
+There's no manual markup anywhere in the app — it's one of these three sources, full stop.
 
 ## Share your vault (public link, no login needed to view)
 

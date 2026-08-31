@@ -23,6 +23,14 @@ export function itemProfit(item) {
   return itemValue(item) - itemCost(item)
 }
 
+// PSA's API returns its price estimate as a formatted string like
+// "$115.00" (or null) — this pulls out the number.
+export function parsePsaEstimate(str) {
+  if (!str) return null
+  const n = Number(String(str).replace(/[^0-9.]/g, ''))
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 // Best available image for a card — your own photo first, then whatever
 // reference images the automatic checks turned up (PSA/CGC's own photo of
 // this exact card, or the Pokémon TCG database's stock scan). This is what
