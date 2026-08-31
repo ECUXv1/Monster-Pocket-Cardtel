@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ChevronLeft, Pencil, Trash2, ImageOff, Award, Tag, RefreshCw, TrendingUp, ExternalLink, Expand } from 'lucide-react'
+import { ChevronLeft, Pencil, Trash2, ImageOff, Award, Tag, RefreshCw, TrendingUp, ExternalLink, Expand, Eye, EyeOff } from 'lucide-react'
 import { getItem, deleteItem, upsertItem } from '../lib/inventoryStore'
 import { useAuth } from '../lib/AuthContext'
 import { money, itemProfit } from '../lib/format'
 import { isEstimateStale } from '../lib/marketPrice'
 import { syncItemIntel } from '../lib/itemIntel'
+import { useCustomerView } from '../lib/useCustomerView'
 import CardMatchPicker from '../components/CardMatchPicker'
 import ImageLightbox from '../components/ImageLightbox'
 
@@ -19,6 +20,7 @@ export default function ItemDetail() {
   const [priceError, setPriceError] = useState('')
   const [showCardPicker, setShowCardPicker] = useState(false)
   const [lightbox, setLightbox] = useState(null) // index into `images`, or null when closed
+  const [customerView, setCustomerView] = useCustomerView()
 
   useEffect(() => {
     getItem(id).then((d) => {
@@ -150,6 +152,13 @@ export default function ItemDetail() {
           <ChevronLeft size={20} />
         </button>
         <div className="flex gap-2">
+          <button
+            onClick={() => setCustomerView(!customerView)}
+            title={customerView ? 'Customer view on — tap to show cost again' : 'Customer view off — tap to hide cost'}
+            className={`h-10 w-10 rounded-full flex items-center justify-center ${customerView ? 'bg-purple text-white' : 'bg-surface-2 text-cream/70'}`}
+          >
+            {customerView ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
           <Link to={`/edit/${id}`} className="h-10 px-4 rounded-full bg-surface-2 text-cream text-sm font-semibold flex items-center gap-2">
             <Pencil size={14} /> Edit
           </Link>
@@ -219,15 +228,20 @@ export default function ItemDetail() {
             {item.quantity > 1 && <Badge label={`Qty ${item.quantity}`} />}
           </div>
 
-          <div className="slab-frame rounded-2xl border border-line bg-surface p-4 grid grid-cols-2 gap-4">
-            <Stat label="Paid" value={money(item.purchase_price)} />
+          <div className={`slab-frame rounded-2xl border border-line bg-surface p-4 grid gap-4 ${customerView ? 'grid-cols-1 place-items-center py-6' : 'grid-cols-2'}`}>
+            {!customerView && <Stat label="Paid" value={money(item.purchase_price)} />}
             <Stat
               label={item.is_sold ? 'Sold for' : item.market_estimate?.sample_size > 0 ? 'Asking (market)' : 'Asking price'}
               value={money(item.is_sold ? item.sold_price : item.asking_price)}
               gold
             />
-            <Stat label="Markup" value={`${item.markup_percent}%`} />
-            <Stat label={item.is_sold ? 'Realized profit' : 'Unrealized profit'} value={money(profit)} tone={profit >= 0 ? 'good' : 'bad'} />
+            {!customerView && (
+              <Stat
+                label={item.is_sold ? 'Realized profit' : 'Unrealized profit'}
+                value={money(profit)}
+                tone={profit >= 0 ? 'good' : 'bad'}
+              />
+            )}
           </div>
 
           {item.category === 'graded' && item.cert_number && (
@@ -363,7 +377,7 @@ function MarketEstimate({ item, checking, error, onRefresh }) {
         <>
           <div className="grid grid-cols-4 gap-2">
             <MiniStat label="Low" value={money(est.low)} />
-            <MiniStat label="Average" value={money(est.average)} highlight />
+            <MiniStat label="Average" value={money(est.average)} />
             <MiniStat label="Median" value={money(est.median)} highlight />
             <MiniStat label="High" value={money(est.high)} />
           </div>
@@ -372,17 +386,9 @@ function MarketEstimate({ item, checking, error, onRefresh }) {
             {est.raw_sample_size > est.sample_size ? ` (outliers excluded from ${est.raw_sample_size} found)` : ''} · checked{' '}
             {new Date(est.checked_at).toLocaleDateString()}
           </p>
-          {est.average > 0 && (
+          {est.median > 0 && (
             <p className="text-xs text-cream/60">
-              Asking price is set to this average automatically
-              {item.markup_percent != null && (
-                <>
-                  {' '}
-                  — cost + {item.markup_percent}% markup alone would've suggested{' '}
-                  <span className="text-cream/70">{money(Math.round((item.purchase_price || 0) * (1 + (item.markup_percent || 0) / 100) * 100) / 100)}</span>
-                </>
-              )}
-              .
+              Asking price is set to this median automatically.
             </p>
           )}
           {est.listings?.length > 0 && (

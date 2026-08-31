@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Wallet, TrendingUp, Layers, Award, ChevronRight, ImageOff } from 'lucide-react'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts'
 import { useAuth } from '../lib/AuthContext'
 import { listItems } from '../lib/inventoryStore'
-import { money, pct, itemValue, itemCost, itemProfit } from '../lib/format'
+import { money, pct, itemValue, itemCost, itemProfit, itemImage } from '../lib/format'
+import { useCustomerView } from '../lib/useCustomerView'
 import StatCard from '../components/StatCard'
 import CinematicHero from '../components/CinematicHero'
 
@@ -21,6 +22,7 @@ function collectorRank(total) {
 
 export default function Dashboard() {
   const { user } = useAuth()
+  const [customerView] = useCustomerView()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -53,8 +55,19 @@ export default function Dashboard() {
       [...items]
         .filter((i) => !i.is_sold)
         .sort((a, b) => itemValue(b) - itemValue(a))
-        .slice(0, 5),
+        .slice(0, 8),
     [items]
+  )
+
+  const chartData = useMemo(
+    () =>
+      topItems.map((i) => ({
+        id: i.id,
+        name: i.name?.length > 18 ? i.name.slice(0, 17) + '…' : i.name || 'Untitled',
+        value: itemValue(i),
+        color: i.category === 'graded' ? 'var(--color-gold)' : 'var(--color-purple)',
+      })),
+    [topItems]
   )
 
   const profitPct = stats.cost > 0 ? (stats.profit / stats.cost) * 100 : 0
@@ -85,17 +98,38 @@ export default function Dashboard() {
           <EmptyState />
         ) : (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-              <StatCard label="Cost basis" value={money(stats.cost)} sub={`${stats.total} active items`} tone="cream" icon={Wallet} />
+            {topItems.length > 0 && (
+              <section className="space-y-2">
+                <h2 className="font-display text-xs text-cream/70">VAULT SPOTLIGHT</h2>
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 lg:mx-0 lg:px-0 snap-x snap-mandatory">
+                  {topItems.map((item) => (
+                    <SpotlightTile key={item.id} item={item} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <div className={`grid grid-cols-2 gap-3 lg:gap-4 ${customerView ? '' : 'lg:grid-cols-4'}`}>
+              {!customerView && (
+                <StatCard label="Cost basis" value={money(stats.cost)} sub={`${stats.total} active items`} tone="cream" icon={Wallet} />
+              )}
               <StatCard label="Est. sell value" value={money(stats.value)} sub="At current asking price" tone="gold" icon={Layers} />
+              {!customerView && (
+                <StatCard
+                  label="Unrealized profit"
+                  value={money(stats.profit)}
+                  sub={pct(profitPct)}
+                  tone={stats.profit >= 0 ? 'purple' : 'orange'}
+                  icon={TrendingUp}
+                />
+              )}
               <StatCard
-                label="Unrealized profit"
-                value={money(stats.profit)}
-                sub={pct(profitPct)}
-                tone={stats.profit >= 0 ? 'purple' : 'orange'}
-                icon={TrendingUp}
+                label="Sold to date"
+                value={stats.soldCount}
+                sub={customerView ? 'items sold' : `${money(stats.soldProfit)} realized`}
+                tone="orange"
+                icon={Award}
               />
-              <StatCard label="Sold to date" value={stats.soldCount} sub={`${money(stats.soldProfit)} realized`} tone="orange" icon={Award} />
             </div>
 
             <div className="grid lg:grid-cols-3 gap-4">
@@ -127,28 +161,35 @@ export default function Dashboard() {
 
               <div className="lg:col-span-2 slab-frame rounded-2xl border border-line bg-surface p-4 lg:p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="font-display text-xs text-cream/70">TOP VALUE ITEMS</h2>
+                  <h2 className="font-display text-xs text-cream/70">COLLECTION VALUE — TOP HOLDINGS</h2>
                   <Link to="/inventory" className="text-xs text-purple-glow font-semibold flex items-center gap-1">
                     View all <ChevronRight size={14} />
                   </Link>
                 </div>
-                <div className="space-y-2">
-                  {topItems.map((item) => (
-                    <Link
-                      key={item.id}
-                      to={`/item/${item.id}`}
-                      className="flex items-center gap-3 rounded-xl bg-surface-2 hover:bg-surface-3 p-2.5 transition-colors"
-                    >
-                      <Thumb item={item} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-cream truncate">{item.name}</p>
-                        <p className="text-xs text-cream/50 truncate">
-                          {item.category === 'graded' ? `${item.grading_company} ${item.grade}` : item.condition || 'Raw card'}
-                        </p>
-                      </div>
-                      <p className="font-num text-sm font-bold text-gold shrink-0">{money(item.asking_price)}</p>
-                    </Link>
-                  ))}
+                <div style={{ height: Math.max(160, chartData.length * 34) }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 16, top: 2, bottom: 2 }}>
+                      <XAxis type="number" hide />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={110}
+                        tick={{ fill: 'var(--color-cream)', fontSize: 11, opacity: 0.75 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip
+                        cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                        contentStyle={{ background: '#1b1723', border: '1px solid #322b3d', borderRadius: 8, fontSize: 12 }}
+                        formatter={(v) => money(v)}
+                      />
+                      <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={16}>
+                        {chartData.map((d) => (
+                          <Cell key={d.id} fill={d.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             </div>
@@ -159,6 +200,38 @@ export default function Dashboard() {
   )
 }
 
+function SpotlightTile({ item }) {
+  const src = itemImage(item)
+  return (
+    <Link
+      to={`/item/${item.id}`}
+      className="group relative shrink-0 w-36 lg:w-44 aspect-[3/4] rounded-2xl overflow-hidden slab-frame snap-start shadow-[0_6px_28px_-10px_rgba(0,0,0,0.7)] hover:shadow-[0_0_40px_-8px_rgba(123,47,247,0.7)] transition-shadow"
+    >
+      {src ? (
+        <img
+          src={src}
+          alt={item.name}
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.05]"
+        />
+      ) : (
+        <div className="w-full h-full bg-surface-2 flex items-center justify-center">
+          <ImageOff size={22} className="text-cream/15" />
+        </div>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/5 to-transparent" />
+      {item.category === 'graded' && (
+        <span className="absolute top-2 left-2 bg-gold text-ink text-[9px] font-display px-1.5 py-0.5 rounded">
+          {item.grading_company} {item.grade}
+        </span>
+      )}
+      <div className="absolute inset-x-0 bottom-0 p-2.5">
+        <p className="text-xs font-semibold text-cream truncate leading-tight">{item.name}</p>
+        <p className="font-num text-sm font-bold text-gold">{money(item.asking_price)}</p>
+      </div>
+    </Link>
+  )
+}
+
 function Legend({ color, label }) {
   return (
     <span className="flex items-center gap-1.5 text-cream/60">
@@ -166,18 +239,6 @@ function Legend({ color, label }) {
       {label}
     </span>
   )
-}
-
-function Thumb({ item }) {
-  const src = item.front_image_url || item.slab_image_url
-  if (!src) {
-    return (
-      <div className="h-11 w-11 rounded-lg bg-surface-3 flex items-center justify-center shrink-0">
-        <ImageOff size={16} className="text-cream/30" />
-      </div>
-    )
-  }
-  return <img src={src} alt="" className="h-11 w-11 rounded-lg object-cover shrink-0" />
 }
 
 function EmptyState() {

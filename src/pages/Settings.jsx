@@ -1,29 +1,18 @@
-import { useEffect, useState } from 'react'
 import { Download, LogOut, Wifi, WifiOff } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
-import { getSettings, saveSettings, listItems } from '../lib/inventoryStore'
+import { listItems } from '../lib/inventoryStore'
+import { useCustomerView } from '../lib/useCustomerView'
 import CinematicHero from '../components/CinematicHero'
 
 export default function Settings() {
   const { user, signOut, supabaseReady } = useAuth()
-  const [markup, setMarkup] = useState(30)
-  const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    getSettings(user?.id).then((s) => setMarkup(s.default_markup_percent ?? 30))
-  }, [user?.id])
-
-  async function handleSave() {
-    await saveSettings(user?.id, { default_markup_percent: Number(markup) })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 1500)
-  }
+  const [customerView, setCustomerView] = useCustomerView()
 
   async function handleExport() {
     const items = await listItems(user?.id)
     const headers = [
       'name', 'category', 'set_name', 'card_number', 'grading_company', 'grade',
-      'condition', 'quantity', 'purchase_price', 'markup_percent', 'asking_price',
+      'condition', 'quantity', 'purchase_price', 'asking_price',
       'is_sold', 'sold_price', 'purchase_date', 'sold_date',
     ]
     const rows = items.map((i) => headers.map((h) => JSON.stringify(i[h] ?? '')).join(','))
@@ -53,15 +42,21 @@ export default function Settings() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="font-display text-[11px] text-cream/50 tracking-wide">DEFAULT MARKUP</h2>
-        <p className="text-xs text-cream/40">Applied automatically to price paid when you add a new item. You can override it per item.</p>
-        <div className="slab-frame rounded-2xl border border-line bg-surface p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="font-num text-2xl font-bold text-gold">{markup}%</span>
+        <h2 className="font-display text-[11px] text-cream/50 tracking-wide">CUSTOMER VIEW</h2>
+        <p className="text-xs text-cream/40">
+          Hides what you paid and your profit margin on every item's detail page — handy when you're handing the
+          screen to someone else. Card details, grade, and asking price still show normally. This applies to this
+          device only, and stays on until you switch it back.
+        </p>
+        <div className="slab-frame rounded-2xl border border-line bg-surface p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-cream">{customerView ? 'On — cost is hidden' : 'Off — you see everything'}</p>
           </div>
-          <input type="range" min={0} max={200} step={5} value={markup} onChange={(e) => setMarkup(e.target.value)} className="w-full accent-gold" />
-          <button onClick={handleSave} className="w-full h-11 rounded-xl bg-purple text-white font-bold text-sm active:scale-95">
-            {saved ? 'Saved ✓' : 'Save default'}
+          <button
+            onClick={() => setCustomerView(!customerView)}
+            className={`h-8 w-14 rounded-full flex items-center px-1 transition-colors ${customerView ? 'bg-purple justify-end' : 'bg-surface-2 justify-start'}`}
+          >
+            <span className="h-6 w-6 rounded-full bg-white block" />
           </button>
         </div>
       </section>

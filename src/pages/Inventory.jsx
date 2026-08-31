@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { Search, SlidersHorizontal, ImageOff, PlusCircle } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { listItems } from '../lib/inventoryStore'
-import { money, itemProfit } from '../lib/format'
+import { money, itemProfit, itemImage } from '../lib/format'
+import { useCustomerView } from '../lib/useCustomerView'
 import CinematicHero from '../components/CinematicHero'
 
 const FILTERS = [
@@ -22,6 +23,7 @@ const SORTS = [
 
 export default function Inventory() {
   const { user } = useAuth()
+  const [customerView] = useCustomerView()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
@@ -116,9 +118,9 @@ export default function Inventory() {
         ) : filtered.length === 0 ? (
           <p className="text-cream/40 text-sm py-10 text-center">No items match. Try a different filter or add a new item.</p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-5">
             {filtered.map((item) => (
-              <Card key={item.id} item={item} />
+              <Card key={item.id} item={item} customerView={customerView} />
             ))}
           </div>
         )}
@@ -127,42 +129,49 @@ export default function Inventory() {
   )
 }
 
-function Card({ item }) {
-  const src = item.front_image_url || item.slab_image_url
+function Card({ item, customerView }) {
+  const src = itemImage(item)
   const profit = itemProfit(item)
   return (
     <Link
       to={`/item/${item.id}`}
-      className="slab-frame rounded-2xl border border-line bg-surface overflow-hidden hover:border-purple/60 hover:shadow-[0_0_24px_-8px_rgba(123,47,247,0.6)] transition-all group"
+      className="group relative slab-frame rounded-2xl overflow-hidden bg-surface-2 aspect-[3/4] shadow-[0_4px_20px_-8px_rgba(0,0,0,0.6)] hover:shadow-[0_0_36px_-6px_rgba(123,47,247,0.65)] transition-shadow"
     >
-      <div className="aspect-[3/4] bg-surface-2 relative">
-        {src ? (
-          <img src={src} alt={item.name} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <ImageOff size={24} className="text-cream/20" />
-          </div>
-        )}
-        {item.category === 'graded' && (
-          <span className="absolute top-2 left-2 bg-gold text-ink text-[10px] font-display px-2 py-0.5 rounded shadow-[0_0_10px_-2px_rgba(255,214,10,0.8)]">
-            {item.grading_company} {item.grade}
+      {src ? (
+        <img
+          src={src}
+          alt={item.name}
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <ImageOff size={28} className="text-cream/15" />
+        </div>
+      )}
+
+      {/* Gradient scrim so name/price sit directly on the artwork, museum-placard style */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
+
+      {item.category === 'graded' && (
+        <span className="absolute top-2 left-2 bg-gold text-ink text-[10px] font-display px-2 py-0.5 rounded shadow-[0_0_10px_-2px_rgba(255,214,10,0.8)]">
+          {item.grading_company} {item.grade}
+        </span>
+      )}
+      {item.is_sold && (
+        <span className="absolute inset-0 bg-black/60 flex items-center justify-center">
+          <span className="text-cream font-display text-sm tracking-wide rotate-[-8deg] border-2 border-cream px-3 py-1 rounded">
+            SOLD
           </span>
-        )}
-        {item.is_sold && (
-          <span className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <span className="text-cream font-display text-xs tracking-wide rotate-[-8deg] border-2 border-cream px-3 py-1 rounded">
-              SOLD
-            </span>
-          </span>
-        )}
-      </div>
-      <div className="p-2.5">
-        <p className="text-xs font-semibold text-cream truncate">{item.name}</p>
-        <p className="text-[11px] text-cream/40 truncate">{item.set_name || 'Unsorted set'}</p>
-        <div className="flex items-center justify-between mt-1.5">
-          <span className="font-num text-sm font-bold text-gold">{money(item.is_sold ? item.sold_price : item.asking_price)}</span>
-          {!item.is_sold && (
-            <span className={`text-[10px] font-bold ${profit >= 0 ? 'text-purple-glow' : 'text-orange'}`}>
+        </span>
+      )}
+
+      <div className="absolute inset-x-0 bottom-0 p-3">
+        <p className="text-sm font-semibold text-cream truncate leading-tight">{item.name}</p>
+        <p className="text-[11px] text-cream/50 truncate">{item.set_name || 'Unsorted set'}</p>
+        <div className="flex items-center justify-between mt-1">
+          <span className="font-num text-base font-bold text-gold">{money(item.is_sold ? item.sold_price : item.asking_price)}</span>
+          {!item.is_sold && !customerView && (
+            <span className={`text-[11px] font-bold ${profit >= 0 ? 'text-purple-glow' : 'text-orange'}`}>
               {profit >= 0 ? '+' : ''}
               {money(profit)}
             </span>

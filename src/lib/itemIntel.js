@@ -33,8 +33,8 @@ export async function syncItemIntel(item, userId, options = {}) {
     if (query) {
       const estimate = await fetchEbaySoldPrices(query)
       patch.market_estimate = estimate
-      if (estimate.sample_size > 0 && Number(estimate.average) > 0) {
-        patch.asking_price = Math.round(Number(estimate.average) * 100) / 100
+      if (estimate.sample_size > 0 && Number(estimate.median) > 0) {
+        patch.asking_price = Math.round(Number(estimate.median) * 100) / 100
       }
     }
   } catch {

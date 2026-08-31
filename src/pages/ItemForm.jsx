@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Save, Trash2, Sparkles, Loader2 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
-import { getItem, upsertItem, uploadImage, deleteItem, getSettings, resolveAskingPrice } from '../lib/inventoryStore'
+import { getItem, upsertItem, uploadImage, deleteItem, resolveAskingPrice } from '../lib/inventoryStore'
 import { money } from '../lib/format'
 import SmartCameraCapture from '../components/SmartCameraCapture'
 import { buildEbayQuery, fetchEbaySoldPrices } from '../lib/marketPrice'
@@ -37,7 +37,6 @@ const empty = {
   quantity: 1,
   purchase_price: '',
   purchase_date: '',
-  markup_percent: 30,
   is_sold: false,
   sold_price: '',
   sold_date: '',
@@ -66,12 +65,6 @@ export default function ItemForm() {
   const [showCardPicker, setShowCardPicker] = useState(false)
 
   useEffect(() => {
-    getSettings(user?.id).then((s) => {
-      if (!editing) setForm((f) => ({ ...f, markup_percent: s.default_markup_percent ?? 30 }))
-    })
-  }, [user?.id, editing])
-
-  useEffect(() => {
     if (!editing) return
     getItem(id).then((item) => {
       if (item) setForm({ ...empty, ...item })
@@ -84,7 +77,7 @@ export default function ItemForm() {
   }
 
   const askingPreview = resolveAskingPrice(form)
-  const usingMarketPrice = form.market_estimate?.sample_size > 0 && Number(form.market_estimate?.average) > 0
+  const usingMarketPrice = form.market_estimate?.sample_size > 0 && Number(form.market_estimate?.median) > 0
 
   // A slot photo arrived wirelessly from a phone (QR hand-off) — the image
   // is already uploaded, so we get a URL directly, plus whatever Claude
@@ -236,7 +229,6 @@ export default function ItemForm() {
         id: editing ? id : undefined,
         grade: form.category === 'graded' ? Number(form.grade) || null : null,
         purchase_price: Number(form.purchase_price) || 0,
-        markup_percent: Number(form.markup_percent) || 0,
         quantity: Number(form.quantity) || 1,
         sold_price: form.is_sold ? Number(form.sold_price) || 0 : null,
         purchase_date: form.purchase_date || null,
@@ -582,28 +574,13 @@ export default function ItemForm() {
             </Field>
           </div>
 
-          <Field label={`Fallback markup — ${form.markup_percent || 0}%`}>
-            <input
-              type="range"
-              min={0}
-              max={200}
-              step={5}
-              value={form.markup_percent}
-              onChange={(e) => set('markup_percent', e.target.value)}
-              className="w-full accent-gold"
-            />
-            <p className="text-[10px] text-cream/35 mt-1">
-              Only used until eBay market data exists for this card, or if none turns up.
-            </p>
-          </Field>
-
           <div className="rounded-xl bg-gradient-to-br from-gold/15 to-transparent border border-gold/30 p-4 flex items-center justify-between">
             <div>
               <p className="text-xs text-cream/60 font-semibold uppercase tracking-wide">Asking price</p>
               <p className="text-[11px] text-cream/40 mt-0.5">
                 {usingMarketPrice
-                  ? `Matched to eBay's recent market average (${form.market_estimate.sample_size} listings)`
-                  : `Cost + ${form.markup_percent || 0}% markup — no market data yet`}
+                  ? `Matched to eBay's recent market median (${form.market_estimate.sample_size} listings)`
+                  : 'No market data yet — starting at cost, updates automatically once eBay data comes in'}
               </p>
             </div>
             <p className="font-num text-2xl font-bold text-gold">{money(askingPreview)}</p>

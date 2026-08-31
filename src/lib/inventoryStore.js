@@ -14,21 +14,18 @@ function writeLocal(items) {
   localStorage.setItem(LOCAL_KEY, JSON.stringify(items))
 }
 
-function computeAsking(item) {
-  const price = Number(item.purchase_price) || 0
-  const markup = Number(item.markup_percent) || 0
-  return Math.round(price * (1 + markup / 100) * 100) / 100
-}
-
-// The real pricing rule: once eBay's recently-sold data exists for an item,
-// its average IS the asking price — cost + markup only ever fills in
-// before that data exists yet, or when no comparable sold listings turn up.
+// The pricing rule: asking price = the median of recent comparable eBay
+// sales, full stop. No markup involved — markup was only ever a stand-in
+// guess for real market data. Before that data exists yet (a brand new
+// item, checked moments before the automatic price sync completes), the
+// placeholder is simply cost — a neutral break-even number, not a made-up
+// percentage.
 function resolveAskingPrice(item) {
-  const marketAvg = Number(item.market_estimate?.average)
-  if (item.market_estimate?.sample_size > 0 && marketAvg > 0) {
-    return Math.round(marketAvg * 100) / 100
+  const median = Number(item.market_estimate?.median)
+  if (item.market_estimate?.sample_size > 0 && median > 0) {
+    return Math.round(median * 100) / 100
   }
-  return computeAsking(item)
+  return Math.round((Number(item.purchase_price) || 0) * 100) / 100
 }
 
 function uuid() {
@@ -179,4 +176,4 @@ export async function saveSettings(userId, settings) {
   localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings))
 }
 
-export { computeAsking, resolveAskingPrice }
+export { resolveAskingPrice }

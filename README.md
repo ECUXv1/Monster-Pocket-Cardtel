@@ -151,9 +151,13 @@ Device detection is a simple check (does this look like a phone's browser?) — 
 
 ## Pricing logic
 
-**Market price wins.** Once eBay's recently-sold check finds real comparable listings for an item, its asking price is set automatically to that market average — not to cost plus markup. This happens the moment an item is added (or Auto-Identified), and again every time the price check re-runs (every 7 days automatically, or on demand via the refresh button).
+**Market price wins, using the median.** Once eBay's recently-sold check finds real comparable listings for an item, its asking price is set automatically to the **median** of the most recent, outlier-trimmed sales — not the average, and not a manual markup. Median is more resistant to the occasional fire-sale or bidding-war fluke than a raw average, which is exactly the kind of skew the outlier trimming already guards against. This happens the moment an item is added (or Auto-Identified), and again every time the price check re-runs (every 7 days automatically, or on demand via the refresh button).
 
-Cost + markup (`price you paid × (1 + markup% / 100)`) is only ever a **fallback** — used in the brief window before eBay data exists yet for a new item, or for anything with no comparable sold listings found. Set a personal default markup in **Settings**, and fine-tune it per item on the add/edit form; the app tells you plainly on that form whether the current asking price is coming from the market average or from the fallback markup. Dashboard profit figures use the current asking price for active items and your recorded sold price for sold items.
+There's no manual markup anywhere in the app anymore — before real eBay data exists yet for a brand-new item, the placeholder is simply cost (break-even), and it updates automatically the moment the market check completes, usually within moments of adding the item.
+
+## Customer view
+
+A device-level toggle (Settings, or the eye icon on any item's detail page) that hides what you paid and your profit margin everywhere in the app — Dashboard's cost basis and unrealized profit, every item's profit badge in Inventory, and the Paid/Profit stats on an item's detail page. Handy for handing the screen to someone else without them seeing your cost basis. Card details, grade, and asking price all still show normally — this only hides money-you-paid information, not the item itself. It's per-device (stored locally, not synced) and stays on until you switch it back.
 
 ## Ideas to grow it later
 
