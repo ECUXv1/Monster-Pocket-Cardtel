@@ -64,6 +64,14 @@ export async function syncItemIntel(item, userId, options = {}) {
   if (item.category === 'graded' && item.cert_number && item.grading_company && (certNeverTried || forceCert)) {
     try {
       patch.cert_verification = await lookupCertVerification(item.grading_company, item.cert_number)
+      // Backfill a missing grade from the cert data too — grading
+      // companies' APIs return a formatted string like "GEM MT 10", so
+      // pull out just the number. Never overwrites a grade you already
+      // entered, only fills in a genuinely empty one.
+      if (patch.cert_verification.found && patch.cert_verification.grade && (item.grade == null || item.grade === '')) {
+        const numeric = String(patch.cert_verification.grade).match(/(\d+(\.\d+)?)/)
+        if (numeric) patch.grade = Number(numeric[1])
+      }
     } catch (err) {
       patch.cert_verification = {
         found: false,

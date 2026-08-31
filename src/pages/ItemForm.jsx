@@ -14,6 +14,16 @@ import CardMatchPicker from '../components/CardMatchPicker'
 
 const GRADERS = ['PSA', 'BGS', 'CGC', 'SGC', 'Other']
 
+// Grading companies' own APIs return a formatted grade string like
+// "GEM MT 10" or "PERFECT 10", not a plain number — this pulls out just
+// the numeric part for the app's numeric grade field, so it doesn't
+// silently become null (Number("GEM MT 10") is NaN, not 10).
+function extractNumericGrade(gradeStr) {
+  if (gradeStr == null) return null
+  const match = String(gradeStr).match(/(\d+(\.\d+)?)/)
+  return match ? Number(match[1]) : null
+}
+
 const empty = {
   category: 'raw',
   name: '',
@@ -134,7 +144,7 @@ export default function ItemForm() {
             setForm((f) => ({
               ...f,
               cert_verification: cert,
-              grade: cert.found && cert.grade ? cert.grade : f.grade,
+              grade: cert.found && cert.grade ? extractNumericGrade(cert.grade) ?? f.grade : f.grade,
             }))
           } catch (err) {
             setForm((f) => ({

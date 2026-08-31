@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ChevronLeft, Pencil, Trash2, ImageOff, Award, Tag, RefreshCw, TrendingUp, ExternalLink } from 'lucide-react'
+import { ChevronLeft, Pencil, Trash2, ImageOff, Award, Tag, RefreshCw, TrendingUp, ExternalLink, Expand } from 'lucide-react'
 import { getItem, deleteItem, upsertItem } from '../lib/inventoryStore'
 import { useAuth } from '../lib/AuthContext'
 import { money, itemProfit } from '../lib/format'
 import { isEstimateStale } from '../lib/marketPrice'
 import { syncItemIntel } from '../lib/itemIntel'
 import CardMatchPicker from '../components/CardMatchPicker'
+import ImageLightbox from '../components/ImageLightbox'
 
 export default function ItemDetail() {
   const { id } = useParams()
@@ -17,6 +18,7 @@ export default function ItemDetail() {
   const [checkingPrice, setCheckingPrice] = useState(false)
   const [priceError, setPriceError] = useState('')
   const [showCardPicker, setShowCardPicker] = useState(false)
+  const [lightbox, setLightbox] = useState(null) // index into `images`, or null when closed
 
   useEffect(() => {
     getItem(id).then((d) => {
@@ -55,6 +57,7 @@ export default function ItemDetail() {
           asking_price: updated.asking_price ?? prev.asking_price,
           card_reference: updated.card_reference ?? prev.card_reference,
           cert_verification: updated.cert_verification ?? prev.cert_verification,
+          grade: updated.grade ?? prev.grade,
           price_guide: updated.price_guide ?? prev.price_guide,
         }))
       }
@@ -106,7 +109,23 @@ export default function ItemDetail() {
   if (!item) return <div className="p-6 text-cream/40 text-sm">Item not found.</div>
 
   const profit = itemProfit(item)
-  const images = [item.front_image_url, item.back_image_url, item.slab_image_url].filter(Boolean)
+  // Every image worth showing for this item: your own photos first, then
+  // any reference photos the grading company itself has on file — PSA's
+  // actual scan of this cert, or CGC's Obverse/Reverse images.
+  const images = [
+    item.front_image_url && { url: item.front_image_url, label: 'Your photo — front' },
+    item.slab_image_url && { url: item.slab_image_url, label: 'Your photo — slab label' },
+    item.back_image_url && { url: item.back_image_url, label: 'Your photo — back' },
+    item.cert_verification?.image_front && {
+      url: item.cert_verification.image_front,
+      label: `${item.cert_verification.grading_company} reference photo — front`,
+    },
+    item.cert_verification?.image_back && {
+      url: item.cert_verification.image_back,
+      label: `${item.cert_verification.grading_company} reference photo — back`,
+    },
+  ].filter(Boolean)
+  const hero = images[0]
 
   return (
     <div className="p-4 lg:p-8 pb-24 md:pb-8 max-w-4xl mx-auto">
@@ -125,15 +144,39 @@ export default function ItemDetail() {
       </header>
 
       <div className="grid md:grid-cols-2 gap-6">
-        <div className="grid grid-cols-2 gap-3">
-          {images.length > 0 ? (
-            images.map((src, i) => (
-              <div key={i} className={`slab-frame rounded-2xl overflow-hidden bg-surface-2 aspect-[3/4] ${images.length === 1 ? 'col-span-2' : ''}`}>
-                <img src={src} alt="" className="w-full h-full object-cover" />
-              </div>
-            ))
+        <div className="space-y-3">
+          {hero ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setLightbox(0)}
+                className="group relative w-full slab-frame rounded-2xl overflow-hidden bg-surface-2 aspect-[3/4] shadow-[0_0_50px_-16px_rgba(123,47,247,0.55)]"
+              >
+                <img src={hero.url} alt={item.name} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-cream bg-black/60 px-3 py-1.5 rounded-full">
+                    <Expand size={13} /> View full size
+                  </span>
+                </div>
+              </button>
+
+              {images.length > 1 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {images.map((img, i) => (
+                    <button
+                      key={img.url}
+                      type="button"
+                      onClick={() => setLightbox(i)}
+                      className="slab-frame rounded-lg overflow-hidden bg-surface-2 aspect-square hover:ring-2 hover:ring-purple/50 transition"
+                    >
+                      <img src={img.url} alt={img.label} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
-            <div className="col-span-2 rounded-2xl bg-surface-2 aspect-video flex items-center justify-center">
+            <div className="rounded-2xl bg-surface-2 aspect-video flex items-center justify-center">
               <ImageOff size={28} className="text-cream/20" />
             </div>
           )}
@@ -153,7 +196,7 @@ export default function ItemDetail() {
           <div className="flex flex-wrap gap-2">
             <Badge icon={Tag} label={item.category === 'graded' ? 'Graded slab' : 'Raw card'} />
             {item.category === 'graded' ? (
-              <Badge icon={Award} label={`${item.grading_company} ${item.grade}`} highlight />
+              <Badge icon={Award} label={item.grade != null ? `${item.grading_company} ${item.grade}` : `${item.grading_company} — ungraded`} highlight />
             ) : (
               <Badge label={item.condition || 'Condition unset'} />
             )}
@@ -241,6 +284,10 @@ export default function ItemDetail() {
           )}
         </div>
       </div>
+
+      {lightbox !== null && (
+        <ImageLightbox images={images} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />
+      )}
     </div>
   )
 }
@@ -431,7 +478,9 @@ function CertVerification({ cert }) {
       <div className="flex items-center justify-between">
         <p className="text-xs font-display text-gold uppercase tracking-wide">
           Verified on {cert.grading_company}.com
-          {cert.source === 'psa_api' && <span className="text-cream/30 normal-case font-body"> · official API</span>}
+          {(cert.source === 'parsebot_psa' || cert.source === 'parsebot_cgc') && (
+            <span className="text-cream/30 normal-case font-body"> · via Parse.bot</span>
+          )}
         </p>
         {cert.source_url && (
           <a
