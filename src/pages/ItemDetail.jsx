@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { ChevronLeft, Pencil, Trash2, ImageOff, Award, Tag, RefreshCw, TrendingUp, ExternalLink } from 'lucide-react'
-import { getItem, deleteItem } from '../lib/inventoryStore'
+import { getItem, deleteItem, upsertItem } from '../lib/inventoryStore'
 import { useAuth } from '../lib/AuthContext'
 import { money, itemProfit } from '../lib/format'
 import { isEstimateStale } from '../lib/marketPrice'
 import { syncItemIntel } from '../lib/itemIntel'
+import CardMatchPicker from '../components/CardMatchPicker'
 
 export default function ItemDetail() {
   const { id } = useParams()
@@ -15,6 +16,7 @@ export default function ItemDetail() {
   const [loading, setLoading] = useState(true)
   const [checkingPrice, setCheckingPrice] = useState(false)
   const [priceError, setPriceError] = useState('')
+  const [showCardPicker, setShowCardPicker] = useState(false)
 
   useEffect(() => {
     getItem(id).then((d) => {
@@ -26,19 +28,26 @@ export default function ItemDetail() {
   useEffect(() => {
     if (!item || item.is_sold) return
     const needsPrice = isEstimateStale(item.market_estimate)
-    const needsReference = !item.card_reference?.found && item.name
-    const needsCert = item.category === 'graded' && item.cert_number && item.grading_company && !item.cert_verification?.found
+    const needsReference = item.card_reference == null && item.name
+    // Only auto-trigger a cert check if it's genuinely never been
+    // attempted — PSA's API has a hard 100-per-day quota shared across
+    // everything using that token, so passively retrying on every page
+    // view after a failed/not-found attempt burns through it fast without
+    // you ever asking for it. Once there's any recorded result (even a
+    // failure), it stays put until you tap refresh on purpose.
+    const needsCert =
+      item.category === 'graded' && item.cert_number && item.grading_company && item.cert_verification == null
     if (!needsPrice && !needsReference && !needsCert) return
     runPriceCheck()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id])
 
-  async function runPriceCheck() {
+  async function runPriceCheck(options = {}) {
     if (!item) return
     setCheckingPrice(true)
     setPriceError('')
     try {
-      const updated = await syncItemIntel(item, user?.id)
+      const updated = await syncItemIntel(item, user?.id, options)
       if (updated) {
         setItem((prev) => ({
           ...prev,
@@ -53,6 +62,15 @@ export default function ItemDetail() {
     } finally {
       setCheckingPrice(false)
     }
+  }
+
+  async function handleSelectCardMatch(picked) {
+    const updated = await upsertItem(
+      { id: item.id, card_reference: { ...picked, found: true, candidates: item.card_reference.candidates } },
+      user?.id
+    )
+    setItem((prev) => ({ ...prev, card_reference: updated.card_reference ?? prev.card_reference }))
+    setShowCardPicker(false)
   }
 
   async function handleDelete() {
@@ -136,10 +154,30 @@ export default function ItemDetail() {
 
           {item.cert_verification?.found && <CertVerification cert={item.cert_verification} />}
           {item.cert_verification?.found === false && (
-            <p className="text-[11px] text-cream/35">{item.cert_verification.note}</p>
+            <p className="text-[11px] text-cream/35">
+              {item.cert_verification.note} Won't retry automatically — tap the refresh icon below to try again.
+            </p>
           )}
 
           {item.card_reference?.found && <CardReference reference={item.card_reference} />}
+          {item.card_reference?.candidates?.length > 1 && (
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setShowCardPicker((v) => !v)}
+                className="text-[11px] text-purple-glow underline underline-offset-2"
+              >
+                {showCardPicker ? 'Hide other matches' : `Not the right card? See ${item.card_reference.candidates.length} matches`}
+              </button>
+              {showCardPicker && (
+                <CardMatchPicker
+                  candidates={item.card_reference.candidates}
+                  selectedId={item.card_reference.id}
+                  onSelect={handleSelectCardMatch}
+                />
+              )}
+            </div>
+          )}
           {item.card_reference?.found === false && (
             <p className="text-[11px] text-cream/35">
               {item.card_reference.note || 'No match in the Pokémon card database for this card.'}
@@ -151,7 +189,7 @@ export default function ItemDetail() {
             item={item}
             checking={checkingPrice}
             error={priceError}
-            onRefresh={runPriceCheck}
+            onRefresh={() => runPriceCheck({ forceCert: true })}
           />
 
           {(item.purchase_date || item.sold_date) && (

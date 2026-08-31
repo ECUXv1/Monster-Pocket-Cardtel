@@ -8,11 +8,13 @@
 // The tricky part isn't finding *a* card with the right name — it's finding
 // the *specific print*. Most Pokémon have been printed dozens of times
 // across different sets (a "Gengar" search alone returns 50+ real cards).
-// So this doesn't just take the first search hit: it gathers several
-// candidates and scores each one against everything we know — card number
-// is the strongest signal (it's effectively unique for a given name), set
-// name is next, then how closely the name itself matches — and returns
-// whichever candidate actually fits best.
+// So this doesn't just take the first search hit: it gathers candidates
+// across several queries, scores every one of them against everything we
+// know — card number is the strongest signal (it's effectively unique for
+// a given name), set name is next, then how closely the name itself
+// matches — and returns not just the single best match but the top 4,
+// ranked, so a wrong automatic pick can be corrected by hand instead of
+// silently trusted.
 //
 // No API key is required for personal, low-volume use. If you want higher
 // rate limits and more reliable results, get a free key at
@@ -85,17 +87,39 @@ function scoreCandidate(card, { name, setName, number }) {
   return score
 }
 
-function pickBest(candidates, signals) {
-  let best = null
-  let bestScore = -Infinity
-  for (const card of candidates) {
-    const score = scoreCandidate(card, signals)
-    if (score > bestScore) {
-      bestScore = score
-      best = card
-    }
+function buildReference(card) {
+  return {
+    id: card.id,
+    name: card.name,
+    supertype: card.supertype,
+    subtypes: card.subtypes,
+    hp: card.hp,
+    types: card.types,
+    rarity: card.rarity,
+    artist: card.artist,
+    flavor_text: card.flavorText,
+    attacks: (card.attacks || []).map((a) => ({ name: a.name, cost: a.cost, damage: a.damage, text: a.text })),
+    set: card.set
+      ? {
+          name: card.set.name,
+          series: card.set.series,
+          release_date: card.set.releaseDate,
+          symbol_url: card.set.images?.symbol,
+          logo_url: card.set.images?.logo,
+        }
+      : null,
+    number: card.number,
+    image_small: card.images?.small,
+    image_large: card.images?.large,
+    market: card.tcgplayer?.prices
+      ? {
+          source: 'tcgplayer',
+          updated_at: card.tcgplayer.updatedAt,
+          url: card.tcgplayer.url,
+          prices: card.tcgplayer.prices,
+        }
+      : null,
   }
-  return { card: best, score: bestScore }
 }
 
 export const handler = async (event) => {
@@ -109,46 +133,64 @@ export const handler = async (event) => {
 
   const safeName = escapeLucene(name)
   const safeSet = setName ? escapeLucene(setName) : null
-  // The first word is usually the actual Pokémon/card name — the rest is
-  // often a descriptive subtitle (e.g. "Pikachu with Grey Felt Hat") that
-  // doesn't always match the database's stored name field verbatim.
-  const firstWord = safeName.split(/\s+/)[0]
+
+  // The card number sometimes arrives as "102/108" (numerator/total) —
+  // only the numerator is a valid, searchable field value here, and an
+  // unescaped "/" in a Lucene query is a syntax character, not a literal
+  // slash. Strip it down before it ever goes into a query string.
+  const queryNumber = number ? String(number).split('/')[0].replace(/^0+(?=\d)/, '').trim() : null
+
+  // For picking a wildcard search term, skip short/generic tokens like
+  // "M" (Mega), "EX", "GX", "V", "VMAX" — using one of those as `*term*`
+  // matches a huge, essentially random slice of the whole database.
+  // Prefer the longest non-generic word instead — the part that actually
+  // identifies which Pokémon this is.
+  const GENERIC_TOKENS = new Set([
+    'm', 'mega', 'ex', 'gx', 'v', 'vmax', 'vstar', 'vunion', 'lv.x', 'delta',
+    'shining', 'radiant', 'tag', 'team', 'prime', 'legend', 'break', 'star', 'the',
+  ])
+  const nameWords = safeName.split(/\s+/).filter(Boolean)
+  const distinctiveWord =
+    nameWords
+      .filter((w) => w.length > 2 && !GENERIC_TOKENS.has(w.toLowerCase().replace(/[^a-z0-9]/gi, '')))
+      .sort((a, b) => b.length - a.length)[0] || nameWords[0] || safeName
+
   const signals = { name, setName, number }
 
-  // Escalating, increasingly broad queries — each one pulls a batch of
-  // candidates (not just one result) so they can be scored against each
-  // other, rather than trusting whichever query happened to return
-  // something non-empty first.
+  // Escalating, increasingly broad queries. Every candidate seen across
+  // every tier gets scored and kept — not just whichever tier happened to
+  // return something first — so the final ranking reflects the best
+  // matches out of everything searched, not just the first hit.
   const tiers = [
-    number && safeSet ? { q: `name:"${safeName}" set.name:"${safeSet}" number:${number}`, pageSize: 5 } : null,
-    number ? { q: `name:"${safeName}" number:${number}`, pageSize: 10 } : null,
+    queryNumber && safeSet ? { q: `name:"${safeName}" set.name:"${safeSet}" number:${queryNumber}`, pageSize: 5 } : null,
+    queryNumber ? { q: `name:"${safeName}" number:${queryNumber}`, pageSize: 10 } : null,
     safeSet ? { q: `name:"${safeName}" set.name:"${safeSet}"`, pageSize: 15 } : null,
     { q: `name:"${safeName}"`, pageSize: 25 }, // exact name, any set — the common case for well-known Pokémon
-    { q: `name:*${firstWord}*`, pageSize: 25 }, // last resort — subtitle/typo tolerant
+    { q: `name:*${distinctiveWord}*`, pageSize: 25 }, // last resort — subtitle/typo tolerant, anchored on the distinctive word
   ].filter(Boolean)
 
-  let best = null
-  let bestScore = -Infinity
+  const scored = new Map() // card.id -> { card, score } — highest score per unique card across all tiers
   let lastError = null
 
   for (const tier of tiers) {
     try {
       const candidates = await search(tier.q, tier.pageSize)
-      if (candidates.length === 0) continue
-      const result = pickBest(candidates, signals)
-      if (result.score > bestScore) {
-        best = result.card
-        bestScore = result.score
+      for (const card of candidates) {
+        const score = scoreCandidate(card, signals)
+        const existing = scored.get(card.id)
+        if (!existing || score > existing.score) scored.set(card.id, { card, score })
       }
-      // A confirmed card-number match is about as certain as this gets —
-      // no need to keep casting a wider net once we have one.
-      if (bestScore >= 100) break
     } catch (err) {
       lastError = err
     }
+    // A confirmed card-number match is about as certain as this gets — no
+    // need to keep casting a wider net once we have one.
+    if ([...scored.values()].some((s) => s.score >= 100)) break
   }
 
-  if (!best) {
+  const ranked = [...scored.values()].sort((a, b) => b.score - a.score)
+
+  if (ranked.length === 0) {
     if (lastError) {
       return {
         statusCode: 200,
@@ -170,43 +212,23 @@ export const handler = async (event) => {
   }
 
   try {
-    const card = best
+    const top4 = ranked.slice(0, 4)
+    const bestScore = top4[0].score
+
+    const candidates = top4.map(({ card, score }) => ({
+      ...buildReference(card),
+      match_score: Math.round(score),
+    }))
 
     const reference = {
       found: true,
-      id: card.id,
-      name: card.name,
-      supertype: card.supertype,
-      subtypes: card.subtypes,
-      hp: card.hp,
-      types: card.types,
-      rarity: card.rarity,
-      artist: card.artist,
-      flavor_text: card.flavorText,
-      attacks: (card.attacks || []).map((a) => ({ name: a.name, cost: a.cost, damage: a.damage, text: a.text })),
-      set: card.set
-        ? {
-            name: card.set.name,
-            series: card.set.series,
-            release_date: card.set.releaseDate,
-            symbol_url: card.set.images?.symbol,
-            logo_url: card.set.images?.logo,
-          }
-        : null,
-      number: card.number,
-      image_small: card.images?.small,
-      image_large: card.images?.large,
-      market: card.tcgplayer?.prices
-        ? {
-            source: 'tcgplayer',
-            updated_at: card.tcgplayer.updatedAt,
-            url: card.tcgplayer.url,
-            prices: card.tcgplayer.prices,
-          }
-        : null,
+      ...candidates[0],
       // Below ~40, the match is really just "same name, unconfirmed print"
       // — worth flagging so the UI (and you) can treat it as a guess.
       match_confidence: bestScore >= 100 ? 'high' : bestScore >= 40 ? 'medium' : 'low',
+      // The other plausible matches, ranked — lets the UI offer "not the
+      // right card? here are 3 more" instead of silently trusting the top pick.
+      candidates,
     }
 
     return { statusCode: 200, body: JSON.stringify(reference) }

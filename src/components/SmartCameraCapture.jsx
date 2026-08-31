@@ -16,13 +16,13 @@ import ScanWithPhone from './ScanWithPhone'
  * onRemoteCapture(url, recognized) — fires when a photo arrives wirelessly
  *   from a phone; the image is already uploaded, so we get a URL, not a File.
  */
-export default function SmartCameraCapture({ label, slot, category, existingUrl, onCapture, onRemoteCapture, onClear }) {
+export default function SmartCameraCapture({ label, hint, slot, category, existingUrl, onCapture, onRemoteCapture, onClear }) {
   const mobile = isMobileDevice()
   const [scanning, setScanning] = useState(false)
   const fileInputRef = useRef(null)
 
   if (mobile) {
-    return <CameraCapture label={label} existingUrl={existingUrl} onCapture={onCapture} onClear={onClear} />
+    return <CameraCapture label={label} hint={hint} existingUrl={existingUrl} onCapture={onCapture} onClear={onClear} />
   }
 
   function handleFile(e) {
@@ -39,10 +39,13 @@ export default function SmartCameraCapture({ label, slot, category, existingUrl,
 
   return (
     <div className="rounded-2xl border border-line bg-surface-2 overflow-hidden">
-      <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-cream/60 flex items-center justify-between">
-        <span>{label}</span>
+      <div className="px-3 py-2 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-cream/60">{label}</p>
+          {hint && <p className="text-[10px] text-cream/35 mt-0.5">{hint}</p>}
+        </div>
         {existingUrl && (
-          <button type="button" onClick={onClear} className="text-cream/50 hover:text-orange flex items-center gap-1">
+          <button type="button" onClick={onClear} className="text-cream/50 hover:text-orange flex items-center gap-1 shrink-0">
             <X size={14} /> Clear
           </button>
         )}

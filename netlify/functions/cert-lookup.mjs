@@ -88,8 +88,27 @@ async function lookupPSAViaAPI(certNumber, token) {
     `https://api.psacard.com/publicapi/cert/GetByCertNumber/${encodeURIComponent(certNumber)}`,
     { headers }
   )
+
+  // Per PSA's own documentation, THEY use 500 (not 401/403) as the usual
+  // signal for invalid credentials — an unusual choice, and they admit
+  // even they can't fully distinguish it from a genuine server error on
+  // their end ("Usually, a response code of 500 will indicate invalid
+  // credentials, though it may also indicate an error on our servers").
+  if (certRes.status === 500) {
+    throw new Error(
+      "PSA responded 500 — per PSA's docs this usually means the token was rejected (it may need to be regenerated at psacard.com/publicapi), though it can occasionally just be a temporary issue on PSA's end."
+    )
+  }
+  if (certRes.status === 429) {
+    const err = new Error('PSA API daily quota exceeded for this token (100 requests/day, resets on a rolling basis).')
+    err.quotaExceeded = true
+    throw err
+  }
   if (certRes.status === 401 || certRes.status === 403) {
     throw new Error('PSA_API_TOKEN was rejected — get a fresh one at psacard.com/publicapi.')
+  }
+  if (certRes.status === 204) {
+    throw new Error('PSA received no cert number with this request — this looks like a bug in the app itself.')
   }
   if (!certRes.ok) throw new Error(`PSA API responded ${certRes.status}`)
 
@@ -180,7 +199,12 @@ async function lookupPSAViaScrape(certNumber) {
   }
 
   if (!heading && !grade) {
-    return { found: false, grading_company: 'PSA', note: 'No PSA record found for that cert number.' }
+    return {
+      found: false,
+      grading_company: 'PSA',
+      note: data?.ServerMessage || 'No PSA record found for that cert number.',
+      checked_at: new Date().toISOString(),
+    }
   }
 
   // PSA shows recent eBay sold prices for the same card + grade population
@@ -214,20 +238,51 @@ async function lookupPSAViaScrape(certNumber) {
   }
 }
 
+// Reads PSA_API_TOKEN, then PSA_API_TOKEN_2, PSA_API_TOKEN_3, ... — any
+// number of tokens, e.g. sharing quota across a couple of PSA accounts
+// with each account holder's permission. Each account still only gets its
+// own single Collectors Account per PSA's terms; this is just trying more
+// than one already-legitimate token in sequence, not creating duplicates.
+function getPsaTokens() {
+  const tokens = []
+  if (process.env.PSA_API_TOKEN) tokens.push(process.env.PSA_API_TOKEN)
+  let i = 2
+  while (process.env[`PSA_API_TOKEN_${i}`]) {
+    tokens.push(process.env[`PSA_API_TOKEN_${i}`])
+    i++
+  }
+  return tokens
+}
+
 async function lookupPSA(certNumber) {
-  const token = process.env.PSA_API_TOKEN
-  if (token) {
-    try {
-      return await lookupPSAViaAPI(certNumber, token)
-    } catch (err) {
-      // If the real API call itself fails unexpectedly (not just "no
-      // record found" — that returns normally above), fall back to
-      // scraping rather than giving up entirely.
+  const tokens = getPsaTokens()
+  if (tokens.length > 0) {
+    let lastErr = null
+    for (const token of tokens) {
       try {
-        return await lookupPSAViaScrape(certNumber)
-      } catch {
-        return { found: false, grading_company: 'PSA', note: err.message }
+        return await lookupPSAViaAPI(certNumber, token)
+      } catch (err) {
+        lastErr = err
+        // Quota exceeded or a rejected token — worth trying the next
+        // configured token before giving up. A genuine "no record found"
+        // result never reaches this catch block at all (it's a normal
+        // return, not a throw), so this loop only ever continues past a
+        // real failure, never past a legitimate answer.
       }
+    }
+    // Every configured token failed.
+    let scraped = null
+    try {
+      scraped = await lookupPSAViaScrape(certNumber)
+    } catch {
+      // ignore — we already have a more specific error to report below
+    }
+    if (scraped?.found) return scraped // the scraped page still has the data even though every API token failed
+    const tokenWord = tokens.length > 1 ? `all ${tokens.length} configured PSA tokens` : 'PSA_API_TOKEN'
+    return {
+      found: false,
+      grading_company: 'PSA',
+      note: `${tokenWord} failed: ${lastErr.message}`,
     }
   }
   return lookupPSAViaScrape(certNumber)

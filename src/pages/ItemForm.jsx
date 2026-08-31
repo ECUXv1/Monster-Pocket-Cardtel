@@ -10,6 +10,7 @@ import { syncItemIntel } from '../lib/itemIntel'
 import { recognizeCard, lookupCardDatabase, lookupCertVerification, gradeCondition } from '../lib/captureSession'
 import CinematicHero from '../components/CinematicHero'
 import DateSelect from '../components/DateSelect'
+import CardMatchPicker from '../components/CardMatchPicker'
 
 const GRADERS = ['PSA', 'BGS', 'CGC', 'SGC', 'Other']
 
@@ -51,6 +52,7 @@ export default function ItemForm() {
   const [loading, setLoading] = useState(editing)
   const [identifyStatus, setIdentifyStatus] = useState('') // '' | 'reading' | 'looking_up' | 'pricing' | 'error'
   const [gradingCondition, setGradingCondition] = useState(false)
+  const [showCardPicker, setShowCardPicker] = useState(false)
 
   useEffect(() => {
     getSettings(user?.id).then((s) => {
@@ -300,6 +302,7 @@ export default function ItemForm() {
         <div className="grid grid-cols-2 gap-3">
           <SmartCameraCapture
             label="Front photo"
+            hint={form.category === 'graded' ? 'Whole slab, straight-on — card and label both visible' : 'The card face-up, filling the frame'}
             slot="front"
             category={form.category}
             existingUrl={form.front_image_url}
@@ -313,6 +316,7 @@ export default function ItemForm() {
           {form.category === 'graded' ? (
             <SmartCameraCapture
               label="Slab (full label)"
+              hint="Zoomed in on the top label — cert number and grade need to be sharp and readable"
               slot="slab"
               category={form.category}
               existingUrl={form.slab_image_url}
@@ -326,6 +330,7 @@ export default function ItemForm() {
           ) : (
             <SmartCameraCapture
               label="Back photo"
+              hint="The card face-down, filling the frame"
               slot="back"
               category={form.category}
               existingUrl={form.back_image_url}
@@ -392,6 +397,30 @@ export default function ItemForm() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {form.card_reference?.candidates?.length > 1 && (
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setShowCardPicker((v) => !v)}
+                className="text-[11px] text-purple-glow underline underline-offset-2"
+              >
+                {showCardPicker ? 'Hide other matches' : `Not the right card? See ${form.card_reference.candidates.length} matches`}
+              </button>
+              {showCardPicker && (
+                <CardMatchPicker
+                  candidates={form.card_reference.candidates}
+                  selectedId={form.card_reference.id}
+                  onSelect={(picked) =>
+                    setForm((f) => ({
+                      ...f,
+                      card_reference: { ...picked, found: true, candidates: f.card_reference.candidates },
+                    }))
+                  }
+                />
+              )}
             </div>
           )}
 

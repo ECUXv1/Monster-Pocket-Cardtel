@@ -14,8 +14,19 @@ import { upsertItem } from './inventoryStore'
  * Best-effort throughout — a failure in one check doesn't block the other,
  * and neither ever throws back to the caller (errors are recorded on the
  * saved item instead, so the UI can show them).
+ *
+ * `options.forceCert` — PSA's public API has a hard 100-requests-PER-DAY
+ * quota, shared across everything using that token. Passively re-checking
+ * on every page view or every re-save (even after a failed/not-found
+ * attempt) burns through that fast without you ever asking for it. So by
+ * default, a cert lookup only runs automatically if it has genuinely never
+ * been attempted before (`cert_verification` is entirely absent) — once
+ * there's ANY recorded result, success or failure, it stays put until you
+ * explicitly tap refresh. Pass `forceCert: true` for that deliberate,
+ * user-initiated retry.
  */
-export async function syncItemIntel(item, userId) {
+export async function syncItemIntel(item, userId, options = {}) {
+  const { forceCert = false } = options
   const patch = { id: item.id }
 
   try {
@@ -31,9 +42,10 @@ export async function syncItemIntel(item, userId) {
     // Leave market_estimate untouched — the detail page's refresh button covers retrying.
   }
 
-  // Only look up the reference if we don't already have a confirmed match —
-  // no point re-querying on every save/view once it's found.
-  if (!item.card_reference?.found && item.name) {
+  // Only look up the reference if it's never been attempted — same
+  // reasoning as the cert check below, though pokemontcg.io's limits are
+  // much more forgiving than PSA's.
+  if (item.card_reference == null && item.name) {
     try {
       patch.card_reference = await lookupCardDatabase({
         name: item.name,
@@ -50,7 +62,8 @@ export async function syncItemIntel(item, userId) {
   // For graded cards with a cert number, also check the grading company's
   // own site directly — ground truth for that exact card, plus (for PSA)
   // real sold prices tied to the same population.
-  if (item.category === 'graded' && item.cert_number && item.grading_company && !item.cert_verification?.found) {
+  const certNeverTried = item.cert_verification == null
+  if (item.category === 'graded' && item.cert_number && item.grading_company && (certNeverTried || forceCert)) {
     try {
       patch.cert_verification = await lookupCertVerification(item.grading_company, item.cert_number)
     } catch (err) {
