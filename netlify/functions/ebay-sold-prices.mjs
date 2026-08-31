@@ -44,23 +44,47 @@ function browserHeaders(userAgent) {
   }
 }
 
-function summarize(prices, listings, query, source) {
-  const sorted = [...prices].sort((a, b) => a - b)
-  const sum = sorted.reduce((s, p) => s + p, 0)
-  const mid = Math.floor(sorted.length / 2)
-  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+function summarize(items, query, source, rawCount) {
+  // `items` are entries the caller has already limited to the most recent
+  // ones available. Curate them further before computing anything:
+  //
+  // 1. Outlier trim — a single "damaged, as-is" fire-sale or a bidding-war
+  //    fluke shouldn't swing the average. Take a preliminary median of the
+  //    recent pool, then drop anything under half of it or over double it.
+  //    If trimming leaves too few points to be meaningful, use the
+  //    untrimmed pool instead rather than over-trimming a small sample.
+  const byPrice = [...items].sort((a, b) => a.price - b.price)
+  const prelimMedian =
+    byPrice.length % 2
+      ? byPrice[(byPrice.length - 1) / 2].price
+      : (byPrice[byPrice.length / 2 - 1].price + byPrice[byPrice.length / 2].price) / 2
+
+  let curated = items.filter((it) => it.price >= prelimMedian * 0.5 && it.price <= prelimMedian * 2)
+  if (curated.length < 3) curated = items
+
+  const prices = curated.map((it) => it.price).sort((a, b) => a - b)
+  const sum = prices.reduce((s, p) => s + p, 0)
+  const mid = Math.floor(prices.length / 2)
+  const median = prices.length % 2 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2
+
   return {
     query,
-    sample_size: sorted.length,
-    average: Math.round((sum / sorted.length) * 100) / 100,
+    sample_size: prices.length,
+    raw_sample_size: rawCount,
+    average: Math.round((sum / prices.length) * 100) / 100,
     median: Math.round(median * 100) / 100,
-    low: sorted[0],
-    high: sorted[sorted.length - 1],
-    listings,
+    low: prices[0],
+    high: prices[prices.length - 1],
+    listings: curated.slice(0, 6).map(({ title, price, url }) => ({ title, price, url })),
     checked_at: new Date().toISOString(),
     source,
   }
 }
+
+// How many of the most recent sold listings to actually use for the
+// average/median — not all 40 fetched, since older sales further back can
+// reflect a stale market, not what this card is worth right now.
+const RECENT_WINDOW = 8
 
 async function fetchViaSoldComps(query, apiKey) {
   const url = `https://api.sold-comps.com/v1/scrape?keyword=${encodeURIComponent(query)}&count=40&sortOrder=endedRecently`
@@ -79,23 +103,34 @@ async function fetchViaSoldComps(query, apiKey) {
     throw new Error(data?.error || `SoldComps responded ${res.status}`)
   }
 
-  const prices = []
-  const listings = []
+  const items = []
   for (const item of data.items || []) {
     const price = Number(item.soldPrice)
     if (!Number.isFinite(price) || price <= 0) continue
-    prices.push(price)
-    if (listings.length < 6) listings.push({ title: item.title, price, url: item.url })
+    items.push({ price, title: item.title, url: item.url, endedAt: item.endedAt || null })
   }
 
-  if (prices.length === 0) {
+  if (items.length === 0) {
     return { query, sample_size: 0, checked_at: new Date().toISOString() }
   }
-  return summarize(prices, listings, query, 'soldcomps')
+
+  // SoldComps already sorts by endedRecently, but sort explicitly here too
+  // rather than trusting that ordering — real dates when present, original
+  // order as a fallback for anything missing a date.
+  const withDates = items.filter((it) => it.endedAt)
+  const withoutDates = items.filter((it) => !it.endedAt)
+  withDates.sort((a, b) => new Date(b.endedAt) - new Date(a.endedAt))
+  const recent = [...withDates, ...withoutDates].slice(0, RECENT_WINDOW)
+
+  return summarize(recent, query, 'soldcomps', items.length)
 }
 
 async function fetchViaScrape(query) {
-  const url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1&_ipg=60`
+  // _sop=13 sorts eBay's results most-recent-first for completed/sold
+  // listings — best-effort, since eBay doesn't document exact sort
+  // semantics for this combination of filters, but it's the closest
+  // option to "most recently sold" available via URL parameters alone.
+  const url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1&_ipg=60&_sop=13`
 
   let html = null
   let lastStatus = null
@@ -122,8 +157,7 @@ async function fetchViaScrape(query) {
   }
 
   const $ = cheerio.load(html)
-  const prices = []
-  const listings = []
+  const items = []
 
   $('li.s-item, div.s-item').each((_, el) => {
     const title = $(el).find('.s-item__title').first().text().trim()
@@ -137,14 +171,25 @@ async function fetchViaScrape(query) {
     const price = parseFloat(match[1].replace(/,/g, ''))
     if (!Number.isFinite(price) || price <= 0) return
 
-    prices.push(price)
-    if (listings.length < 6) listings.push({ title, price, url: href })
+    // eBay's completed-listing cards usually show a "Sold <date>" caption
+    // near the price — grab it opportunistically for real recency data;
+    // page order (already sorted via _sop=13 above) is the fallback.
+    const soldText = $(el).text().match(/Sold\s+([A-Za-z]{3}\s+\d{1,2},\s*\d{4})/)
+    const soldDate = soldText ? new Date(soldText[1]) : null
+
+    items.push({ price, title, url: href, endedAt: soldDate && !isNaN(soldDate) ? soldDate.toISOString() : null })
   })
 
-  if (prices.length === 0) {
+  if (items.length === 0) {
     return { query, sample_size: 0, checked_at: new Date().toISOString() }
   }
-  return summarize(prices, listings, query, 'ebay_sold_listings')
+
+  const withDates = items.filter((it) => it.endedAt)
+  const withoutDates = items.filter((it) => !it.endedAt)
+  withDates.sort((a, b) => new Date(b.endedAt) - new Date(a.endedAt))
+  const recent = [...withDates, ...withoutDates].slice(0, RECENT_WINDOW)
+
+  return summarize(recent, query, 'ebay_sold_listings', items.length)
 }
 
 export const handler = async (event) => {

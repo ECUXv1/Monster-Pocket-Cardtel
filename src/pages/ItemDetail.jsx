@@ -44,6 +44,22 @@ export default function ItemDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id])
 
+  // Self-heal a missing numeric grade from cert data that's already saved
+  // (no network call, no Parse.bot credits spent) — covers items whose
+  // cert_verification was fetched before the grade-parsing fix existed,
+  // which would otherwise stay stuck showing "ungraded" forever since a
+  // fresh cert check never gets triggered again once one is on file.
+  useEffect(() => {
+    if (!item || item.grade != null) return
+    if (item.category !== 'graded' || !item.cert_verification?.found || !item.cert_verification?.grade) return
+    const match = String(item.cert_verification.grade).match(/(\d+(\.\d+)?)/)
+    if (!match) return
+    const fixedGrade = Number(match[1])
+    upsertItem({ id: item.id, grade: fixedGrade }, user?.id).then(() => {
+      setItem((prev) => (prev ? { ...prev, grade: fixedGrade } : prev))
+    })
+  }, [item, user?.id])
+
   async function runPriceCheck(options = {}) {
     if (!item) return
     setCheckingPrice(true)
@@ -351,7 +367,8 @@ function MarketEstimate({ item, checking, error, onRefresh }) {
             <MiniStat label="High" value={money(est.high)} />
           </div>
           <p className="text-[11px] text-cream/40">
-            From {est.sample_size} recent sold listing{est.sample_size === 1 ? '' : 's'} · checked{' '}
+            From the {est.sample_size} most recent sold listing{est.sample_size === 1 ? '' : 's'}
+            {est.raw_sample_size > est.sample_size ? ` (outliers excluded from ${est.raw_sample_size} found)` : ''} · checked{' '}
             {new Date(est.checked_at).toLocaleDateString()}
           </p>
           {est.average > 0 && (
