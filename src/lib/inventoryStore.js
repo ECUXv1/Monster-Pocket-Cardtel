@@ -181,14 +181,17 @@ export async function saveSettings(userId, settings) {
 // backend to actually serve, so this is unavailable in local demo mode.
 
 export async function getShareSettings(userId) {
-  if (!supabaseReady) return null
+  if (!supabaseReady) return { share_token: null, share_enabled: false }
   const { data, error } = await supabase
     .from('user_settings')
     .select('share_token, share_enabled')
     .eq('user_id', userId)
     .maybeSingle()
   if (error) throw error
-  return data
+  // No row yet (never toggled before) — a real one gets created the
+  // moment the toggle is actually flipped on, via the upsert in
+  // setShareEnabled. Until then, this is just "off."
+  return data || { share_token: null, share_enabled: false }
 }
 
 export async function setShareEnabled(userId, enabled) {

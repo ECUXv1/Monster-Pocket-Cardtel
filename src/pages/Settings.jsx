@@ -8,7 +8,7 @@ import CinematicHero from '../components/CinematicHero'
 export default function Settings() {
   const { user, signOut, supabaseReady } = useAuth()
   const [customerView, setCustomerView] = useCustomerView()
-  const [share, setShare] = useState(null) // { share_token, share_enabled } | null while loading
+  const [share, setShare] = useState({ share_token: null, share_enabled: false }) // real values fill in once loaded
   const [shareBusy, setShareBusy] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -96,7 +96,7 @@ export default function Settings() {
               </p>
               <button
                 onClick={handleToggleShare}
-                disabled={shareBusy || !share}
+                disabled={shareBusy}
                 className={`h-8 w-14 rounded-full flex items-center px-1 transition-colors disabled:opacity-50 ${share?.share_enabled ? 'bg-purple justify-end' : 'bg-surface-2 justify-start'}`}
               >
                 <span className="h-6 w-6 rounded-full bg-white block" />
