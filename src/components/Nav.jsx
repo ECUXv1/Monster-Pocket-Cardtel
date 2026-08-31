@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Layers, PlusCircle, Settings } from 'lucide-react'
+import { LayoutDashboard, Layers, PlusCircle, Settings, Eye, EyeOff } from 'lucide-react'
+import { useCustomerView } from '../lib/useCustomerView'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -9,6 +10,8 @@ const links = [
 ]
 
 export default function Nav() {
+  const [customerView, setCustomerView] = useCustomerView()
+
   return (
     <>
       {/* Side rail — wide screens & touchscreen dashboards (Tesla, tablets landscape) */}
@@ -37,6 +40,17 @@ export default function Nav() {
           </NavLink>
         ))}
 
+        <button
+          onClick={() => setCustomerView(!customerView)}
+          title={customerView ? 'Customer view on — tap to show cost again' : 'Customer view off — tap to hide cost'}
+          className={`flex items-center gap-3 rounded-xl px-3 py-3 lg:py-3.5 text-sm font-semibold transition-colors ${
+            customerView ? 'bg-purple/20 text-purple-glow' : 'text-cream/60 hover:text-cream hover:bg-surface-2'
+          }`}
+        >
+          {customerView ? <EyeOff size={22} className="shrink-0" /> : <Eye size={22} className="shrink-0" />}
+          <span className="hidden lg:block">{customerView ? 'Customer view: ON' : 'Customer view'}</span>
+        </button>
+
         <div className="hidden lg:block mt-auto pt-6 text-center">
           <p className="font-display text-[9px] tracking-[0.15em] text-gold/60 leading-relaxed">
             RIP · TRADE
@@ -45,6 +59,21 @@ export default function Nav() {
           </p>
         </div>
       </nav>
+
+      {/* A persistent, tappable pill on phones — the 4-slot bottom nav has
+          no room for a 5th link, so this floats above it instead, visible
+          on every screen regardless of which tab is open. */}
+      <button
+        onClick={() => setCustomerView(!customerView)}
+        className={`md:hidden fixed top-3 right-3 z-40 h-9 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold backdrop-blur border ${
+          customerView
+            ? 'bg-purple/90 text-white border-purple shadow-[0_0_16px_-2px_rgba(123,47,247,0.7)]'
+            : 'bg-surface/90 text-cream/70 border-line'
+        }`}
+      >
+        {customerView ? <EyeOff size={15} /> : <Eye size={15} />}
+        {customerView ? 'Customer view' : 'Customer view'}
+      </button>
 
       {/* Bottom bar — portrait phones */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-surface/95 backdrop-blur border-t border-line pb-[env(safe-area-inset-bottom)]">
