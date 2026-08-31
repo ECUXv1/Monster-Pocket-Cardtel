@@ -1,29 +1,28 @@
 import { buildEbayQuery, fetchEbaySoldPrices } from './marketPrice'
-import { lookupCardDatabase, lookupCertVerification } from './captureSession'
+import { lookupCardDatabase, lookupCertVerification, lookupPriceGuide } from './captureSession'
 import { upsertItem } from './inventoryStore'
 
 /**
- * Runs both background checks for an item — eBay's recent-sold price and
- * the Pokémon TCG card database (reference image, stats, TCGplayer prices)
- * — and saves whatever comes back. This is the automatic behavior for
- * every item, whether its details were typed in by hand or filled in by
- * Auto-Identify: the card database lookup only ever needed a name to
- * search by, not a photo, so there was never a good reason to gate it
- * behind the vision step.
+ * Runs the background checks for an item — eBay's recent-sold price, the
+ * Pokémon TCG card database (reference image, stats, TCGplayer prices),
+ * cert verification for graded cards (PSA/CGC via Parse.bot), and a second
+ * price-guide check (PriceCharting + Collectr) — and saves whatever comes
+ * back. This is the automatic behavior for every item, whether its details
+ * were typed in by hand or filled in by Auto-Identify: none of these
+ * lookups actually need a photo, just the details already on the item.
  *
- * Best-effort throughout — a failure in one check doesn't block the other,
- * and neither ever throws back to the caller (errors are recorded on the
- * saved item instead, so the UI can show them).
+ * Best-effort throughout — a failure in one check doesn't block the
+ * others, and none of them ever throw back to the caller (errors are
+ * recorded on the saved item instead, so the UI can show them).
  *
- * `options.forceCert` — PSA's public API has a hard 100-requests-PER-DAY
- * quota, shared across everything using that token. Passively re-checking
- * on every page view or every re-save (even after a failed/not-found
- * attempt) burns through that fast without you ever asking for it. So by
- * default, a cert lookup only runs automatically if it has genuinely never
- * been attempted before (`cert_verification` is entirely absent) — once
- * there's ANY recorded result, success or failure, it stays put until you
- * explicitly tap refresh. Pass `forceCert: true` for that deliberate,
- * user-initiated retry.
+ * `options.forceCert` — even with Parse.bot's more generous free tier
+ * (200 credits/month) instead of PSA's own 100-requests-per-day token,
+ * passively re-checking on every page view or every re-save still isn't
+ * worth doing. So by default, the cert check and the price-guide check
+ * each only run automatically if they've genuinely never been attempted
+ * before (the field is entirely absent) — once there's ANY recorded
+ * result, success or failure, it stays put until you explicitly tap
+ * refresh. Pass `forceCert: true` for that deliberate, user-initiated retry.
  */
 export async function syncItemIntel(item, userId, options = {}) {
   const { forceCert = false } = options
@@ -43,8 +42,7 @@ export async function syncItemIntel(item, userId, options = {}) {
   }
 
   // Only look up the reference if it's never been attempted — same
-  // reasoning as the cert check below, though pokemontcg.io's limits are
-  // much more forgiving than PSA's.
+  // reasoning as the checks below.
   if (item.card_reference == null && item.name) {
     try {
       patch.card_reference = await lookupCardDatabase({
@@ -60,8 +58,8 @@ export async function syncItemIntel(item, userId, options = {}) {
   }
 
   // For graded cards with a cert number, also check the grading company's
-  // own site directly — ground truth for that exact card, plus (for PSA)
-  // real sold prices tied to the same population.
+  // own site directly — ground truth for that exact card, plus the actual
+  // reference photo of that specific slab.
   const certNeverTried = item.cert_verification == null
   if (item.category === 'graded' && item.cert_number && item.grading_company && (certNeverTried || forceCert)) {
     try {
@@ -72,6 +70,21 @@ export async function syncItemIntel(item, userId, options = {}) {
         grading_company: item.grading_company,
         note: `Couldn't reach ${item.grading_company}'s site right now (${err.message}).`,
       }
+    }
+  }
+
+  // A second, independent price signal (PriceCharting + Collectr)
+  // alongside eBay/SoldComps — useful for thinly-traded cards where eBay
+  // has few or no recent comps. This costs real Parse.bot credits (~4 per
+  // item: PriceCharting search + Collectr search + Collectr detail), so
+  // unlike everything else here, it's opt-in per item — only runs if
+  // `check_price_guide` is explicitly turned on for that item.
+  const priceGuideNeverTried = item.price_guide == null
+  if (item.check_price_guide && item.name && (priceGuideNeverTried || forceCert)) {
+    try {
+      patch.price_guide = await lookupPriceGuide({ name: item.name, set_name: item.set_name })
+    } catch (err) {
+      patch.price_guide = { found: false, note: `Couldn't check PriceCharting/Collectr right now (${err.message}).` }
     }
   }
 

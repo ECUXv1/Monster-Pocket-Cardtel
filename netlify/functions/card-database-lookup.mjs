@@ -27,14 +27,31 @@ function escapeLucene(str) {
   return str.replace(/([+\-!(){}[\]^"~*?:\\/])/g, '\\$1')
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function search(query, pageSize) {
   const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}&pageSize=${pageSize}`
   const headers = {}
   if (process.env.POKEMONTCG_API_KEY) headers['X-Api-Key'] = process.env.POKEMONTCG_API_KEY
-  const res = await fetch(url, { headers })
-  if (!res.ok) throw new Error(`Pokemon TCG API responded ${res.status}`)
-  const data = await res.json()
-  return data.data || []
+
+  // pokemontcg.io is a free, community-run service — occasional 502/503s
+  // are transient blips, not a real outage, and usually clear up within a
+  // second or two. Worth one quick retry before treating it as a real
+  // failure and giving up on this tier of the search.
+  let lastErr = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(url, { headers })
+    if (res.ok) {
+      const data = await res.json()
+      return data.data || []
+    }
+    lastErr = new Error(`Pokemon TCG API responded ${res.status}`)
+    if (res.status !== 502 && res.status !== 503 && res.status !== 504) break
+    if (attempt === 0) await sleep(400)
+  }
+  throw lastErr
 }
 
 function normalizeNumber(n) {

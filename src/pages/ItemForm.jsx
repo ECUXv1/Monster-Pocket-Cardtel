@@ -36,6 +36,7 @@ const empty = {
   back_image_url: '',
   slab_image_url: '',
   card_reference: null,
+  check_price_guide: false,
   condition_report: null,
   cert_verification: null,
 }
@@ -597,6 +598,22 @@ export default function ItemForm() {
             </div>
             <p className="font-num text-2xl font-bold text-gold">{money(askingPreview)}</p>
           </div>
+
+          <label className="flex items-start gap-2.5 rounded-xl border border-line bg-surface p-3">
+            <input
+              type="checkbox"
+              checked={form.check_price_guide}
+              onChange={(e) => set('check_price_guide', e.target.checked)}
+              className="h-4 w-4 accent-purple mt-0.5"
+            />
+            <span>
+              <span className="block text-sm text-cream/80">Check premium price guide</span>
+              <span className="block text-[11px] text-cream/40 mt-0.5">
+                PriceCharting + Collectr, a second price opinion alongside eBay. Costs Parse.bot credits (~4/item) —
+                worth it for high-end pieces, skip it for everyday cards.
+              </span>
+            </span>
+          </label>
 
           <label className="flex items-center gap-2 text-sm text-cream/70">
             <input type="checkbox" checked={form.is_sold} onChange={(e) => set('is_sold', e.target.checked)} className="h-4 w-4 accent-purple" />

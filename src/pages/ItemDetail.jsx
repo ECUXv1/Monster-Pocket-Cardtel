@@ -29,15 +29,15 @@ export default function ItemDetail() {
     if (!item || item.is_sold) return
     const needsPrice = isEstimateStale(item.market_estimate)
     const needsReference = item.card_reference == null && item.name
-    // Only auto-trigger a cert check if it's genuinely never been
-    // attempted — PSA's API has a hard 100-per-day quota shared across
-    // everything using that token, so passively retrying on every page
-    // view after a failed/not-found attempt burns through it fast without
-    // you ever asking for it. Once there's any recorded result (even a
+    // Only auto-trigger these if they've genuinely never been attempted —
+    // even with Parse.bot's more generous free tier than PSA's own token,
+    // passively retrying on every page view after a failed/not-found
+    // attempt isn't worth it. Once there's any recorded result (even a
     // failure), it stays put until you tap refresh on purpose.
     const needsCert =
       item.category === 'graded' && item.cert_number && item.grading_company && item.cert_verification == null
-    if (!needsPrice && !needsReference && !needsCert) return
+    const needsPriceGuide = item.check_price_guide && item.price_guide == null && item.name
+    if (!needsPrice && !needsReference && !needsCert && !needsPriceGuide) return
     runPriceCheck()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id])
@@ -55,10 +55,33 @@ export default function ItemDetail() {
           asking_price: updated.asking_price ?? prev.asking_price,
           card_reference: updated.card_reference ?? prev.card_reference,
           cert_verification: updated.cert_verification ?? prev.cert_verification,
+          price_guide: updated.price_guide ?? prev.price_guide,
         }))
       }
     } catch (err) {
       setPriceError(err.message || 'Could not check prices.')
+    } finally {
+      setCheckingPrice(false)
+    }
+  }
+
+  async function handleEnablePriceGuide() {
+    setCheckingPrice(true)
+    try {
+      const patchedItem = { ...item, check_price_guide: true }
+      const updated = await syncItemIntel(patchedItem, user?.id)
+      setItem((prev) => ({
+        ...prev,
+        check_price_guide: true,
+        price_guide: updated?.price_guide ?? prev.price_guide,
+      }))
+      if (!updated) {
+        // syncItemIntel returns null if nothing needed updating — still
+        // need to persist the flag itself in that edge case.
+        await upsertItem({ id: item.id, check_price_guide: true }, user?.id)
+      }
+    } catch (err) {
+      setPriceError(err.message || 'Could not check the price guide.')
     } finally {
       setCheckingPrice(false)
     }
@@ -184,6 +207,17 @@ export default function ItemDetail() {
             </p>
           )}
           {item.condition_report?.condition && <ConditionReport report={item.condition_report} />}
+          {item.price_guide?.found && <PriceGuide guide={item.price_guide} />}
+          {!item.check_price_guide && (
+            <button
+              type="button"
+              onClick={handleEnablePriceGuide}
+              disabled={checkingPrice}
+              className="text-[11px] text-purple-glow underline underline-offset-2 disabled:opacity-50"
+            >
+              Check premium price guide (PriceCharting + Collectr) — ~4 Parse.bot credits
+            </button>
+          )}
 
           <MarketEstimate
             item={item}
@@ -321,6 +355,72 @@ function MiniStat({ label, value, highlight }) {
     <div className="text-center">
       <p className="text-[10px] font-semibold text-cream/40 uppercase tracking-wide">{label}</p>
       <p className={`font-num text-sm font-bold ${highlight ? 'text-gold' : 'text-cream'}`}>{value}</p>
+    </div>
+  )
+}
+
+function PriceGuide({ guide }) {
+  const pc = guide.pricecharting
+  const cr = guide.collectr
+
+  return (
+    <div className="slab-frame rounded-2xl border border-line bg-surface p-4 space-y-3">
+      <p className="text-xs font-display text-gold uppercase tracking-wide">Price guide (2nd opinion)</p>
+
+      {pc?.prices && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-cream/40">PriceCharting</p>
+          <div className="flex flex-wrap gap-3 mt-1">
+            {pc.prices.ungraded != null && (
+              <div className="text-center">
+                <p className="text-[9px] text-cream/40">Ungraded</p>
+                <p className="font-num text-xs font-bold text-cream">{money(pc.prices.ungraded)}</p>
+              </div>
+            )}
+            {pc.prices.grade_9 != null && (
+              <div className="text-center">
+                <p className="text-[9px] text-cream/40">Grade 9</p>
+                <p className="font-num text-xs font-bold text-cream">{money(pc.prices.grade_9)}</p>
+              </div>
+            )}
+            {pc.prices.psa_10 != null && (
+              <div className="text-center">
+                <p className="text-[9px] text-cream/40">PSA 10</p>
+                <p className="font-num text-xs font-bold text-purple-glow">{money(pc.prices.psa_10)}</p>
+              </div>
+            )}
+            {pc.url && (
+              <a href={pc.url} target="_blank" rel="noreferrer" className="ml-auto self-center text-[10px] text-cream/40 hover:text-cream/70 flex items-center gap-1">
+                View <ExternalLink size={10} />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {cr && (cr.market_price || cr.graded_sub_types) && (
+        <div className={pc?.prices ? 'pt-2 border-t border-line' : ''}>
+          <p className="text-[10px] uppercase tracking-wide text-cream/40">Collectr</p>
+          <div className="flex flex-wrap gap-3 mt-1">
+            {cr.market_price && (
+              <div className="text-center">
+                <p className="text-[9px] text-cream/40">Market</p>
+                <p className="font-num text-xs font-bold text-cream">{money(Number(cr.market_price))}</p>
+              </div>
+            )}
+            {(cr.graded_sub_types || []).slice(0, 3).map((g, i) => {
+              const price = Number(g.price ?? g.market_price ?? g.current_price)
+              if (!Number.isFinite(price)) return null
+              return (
+                <div key={i} className="text-center">
+                  <p className="text-[9px] text-cream/40">{g.grading_company} {g.grade_label}</p>
+                  <p className="font-num text-xs font-bold text-purple-glow">{money(price)}</p>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

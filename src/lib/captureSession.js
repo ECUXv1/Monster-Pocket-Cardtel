@@ -93,3 +93,12 @@ export async function lookupCertVerification(gradingCompany, certNumber) {
   if (!res.ok) throw new Error(data.error || 'Cert lookup failed')
   return data
 }
+
+export async function lookupPriceGuide({ name, set_name }) {
+  const params = new URLSearchParams({ name })
+  if (set_name) params.set('set', set_name)
+  const res = await fetch(`/.netlify/functions/price-guide-lookup?${params.toString()}`)
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Price guide lookup failed')
+  return data
+}

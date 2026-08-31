@@ -44,6 +44,8 @@ create table if not exists public.items (
   card_reference jsonb,         -- canonical card data from the Pokémon TCG database: reference image, stats, TCGPlayer prices
   condition_report jsonb,       -- AI photo-based condition estimate for raw cards: {condition, confidence, corners, edges, surface, centering, notes}
   cert_verification jsonb,      -- Direct lookup on the grading company's own site (PSA/CGC) by cert number: description, grade, sold comps
+  price_guide jsonb,            -- PriceCharting + Collectr price-by-grade data, a second signal alongside eBay/SoldComps
+  check_price_guide boolean not null default false, -- opt-in per item — the price guide check costs ~4 Parse.bot credits, so it's off by default
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -59,6 +61,8 @@ alter table public.items add column if not exists market_estimate jsonb;
 alter table public.items add column if not exists card_reference jsonb;
 alter table public.items add column if not exists condition_report jsonb;
 alter table public.items add column if not exists cert_verification jsonb;
+alter table public.items add column if not exists price_guide jsonb;
+alter table public.items add column if not exists check_price_guide boolean not null default false;
 
 -- If you set up this database before asking_price stopped being a
 -- generated column, this converts it to a normal editable column,
